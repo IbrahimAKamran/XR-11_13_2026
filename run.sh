@@ -14,11 +14,20 @@ fi
 [ -d node_modules ] || bun install
 
 # Optional overrides (see .env.example). Values in .env win over the shell environment.
+# Parsed leniently (KEY=value, KEY = "value", export KEY=value, # comments) instead of
+# sourcing, so a line like `DEEPGRAM_API_KEY = abc` cannot abort the script.
 if [ -f .env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . ./.env
-  set +a
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    case "$line" in ''|'#'*) continue ;; esac
+    line=${line#export }
+    key=${line%%=*}
+    key=$(printf '%s' "$key" | tr -d '[:space:]')
+    case "$key" in *[!A-Za-z0-9_]*|'') echo "warning: ignoring unparseable .env line: ${line%%=*}" >&2; continue ;; esac
+    value=${line#*=}
+    value=$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/')
+    export "$key=$value"
+  done < .env
 fi
 
 PACKAGE=$(grep -o '"packageName": *"[^"]*"' miniapp.json | sed 's/.*: *"//; s/"$//')
@@ -86,6 +95,22 @@ fi
 echo "  ports   : $PORT (miniapp files) and $((PORT + 1)) (live reload + console output back to this terminal);"
 echo "            if they are busy the CLI picks the next free pair and prints it"
 echo "  ingest  : $MENTRA_PUBLIC_INGEST_URL  (baked into the bundle; raw audio + transcripts arrive here)"
+# Same rule as server/ingest.ts: TRANSCRIBE=deepgram|off wins; otherwise on iff a key is set.
+speech_mode=$(printf '%s' "${TRANSCRIBE:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+if [ -z "$speech_mode" ]; then
+  if [ -n "$(printf '%s' "${DEEPGRAM_API_KEY:-}" | tr -d '[:space:]"'"'"'')" ]; then speech_mode=deepgram; else speech_mode=off; fi
+elif [ "$speech_mode" != "deepgram" ]; then
+  speech_mode=off
+fi
+if [ "$speech_mode" = deepgram ]; then
+  if [ -z "$(printf '%s' "${DEEPGRAM_API_KEY:-}" | tr -d '[:space:]"'"'"'')" ]; then
+    echo "  speech  : TRANSCRIBE=deepgram but DEEPGRAM_API_KEY is empty; Deepgram connections will fail"
+  else
+    echo "  speech  : Deepgram ${DEEPGRAM_MODEL:-nova-3} with speaker labels (key from .env)"
+  fi
+else
+  echo "  speech  : off (put DEEPGRAM_API_KEY=... in .env to get live transcripts with speaker labels)"
+fi
 echo "  ngrok   : not needed; nothing leaves your LAN"
 echo
 echo "On the phone, in the Mentra App: Settings -> Miniapp Developer Settings -> Scan Miniapp QR Code,"

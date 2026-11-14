@@ -6,29 +6,48 @@
  *   POST /ingest/hello   {runId, userId, packageName}
  *   POST /ingest/event   {runId, type: "transcript", text, isFinal, language?, source?, t}
  *                        {runId, type: "vad", speaking, silentForMs?, t}
+ *                        {runId, type: "ping", t}      (heartbeat every few seconds)
  *                        {runId, type: "end", reason}
  *   POST /ingest/audio   {runId, chunks: [{seq, data (base64), sampleRate?, format?, t}, ...]}
  * A WebSocket on any path carrying the same objects as text frames is also
  * accepted, for clients where WebSockets work.
  *
- * Transcript lines are printed so you can see the phone -> Mac path is alive.
- * Audio is decoded from base64 and written to recordings/<utc-time>-<runId>.wav
- * (16-bit PCM, sample rate from the phone or 16000 if it does not say) or to a
- * raw .lc3 file when the phone's mic mode is LC3. One file per run id; a run
- * is finalized on an "end" event or after IDLE_MS without audio. A mid-stream
- * format or sample-rate change starts a "-partN" file so the header stays true.
+ * Per run it: writes recordings/<utc-time>-<runId>.wav (16-bit PCM; raw .lc3 if
+ * the phone's mic mode is LC3), streams the same PCM to Deepgram for live
+ * transcription with speaker labels (server/deepgram.ts, enabled when
+ * DEEPGRAM_API_KEY is set), prints every result, and stores sessions,
+ * utterances and events in data/fieldassist.sqlite (server/store.ts) plus a
+ * per-run recordings/<stem>.jsonl.
+ *
+ * Run lifecycle: a run is finalized on the phone's "end" event or after IDLE_MS
+ * without any post (the phone sends a heartbeat while alive). Data that arrives
+ * for a finalized run id, or an audio format/sample-rate change, continues
+ * under a derived id (<runId>-2, -3, ...) with its own WAV, transcriber and
+ * session row, so utterance times always index the WAV of their own session.
  *
  * Start with: bun run ingest   (or INGEST_PORT=3100 bun run server/ingest.ts)
  */
-import {closeSync, mkdirSync, openSync, writeSync} from "node:fs"
+import {appendFileSync, closeSync, mkdirSync, openSync, writeSync} from "node:fs"
 import {join} from "node:path"
+import {createDeepgramTranscriber, type Segment} from "./deepgram"
+import {Store} from "./store"
 import {WavFile} from "./wav"
 
 const PORT = Number(process.env.INGEST_PORT ?? 3100)
 const RECORDINGS_DIR = process.env.INGEST_DIR ?? join(import.meta.dir, "..", "recordings")
+const DB_PATH = process.env.FIELDASSIST_DB ?? join(import.meta.dir, "..", "data", "fieldassist.sqlite")
 const DEFAULT_SAMPLE_RATE = 16000
 const STATS_INTERVAL_MS = 1000
-const IDLE_MS = 15_000
+const IDLE_MS = Number(process.env.INGEST_IDLE_MS ?? 30_000)
+const INTERIM_PRINT_MS = 700
+
+const DEEPGRAM_API_KEY = (process.env.DEEPGRAM_API_KEY ?? "").trim().replace(/^["']|["']$/g, "")
+const requestedTranscribe = (process.env.TRANSCRIBE ?? "").trim().toLowerCase()
+const TRANSCRIBE: "deepgram" | "off" = requestedTranscribe ? (requestedTranscribe === "deepgram" ? "deepgram" : "off") : DEEPGRAM_API_KEY ? "deepgram" : "off"
+const DEEPGRAM_MODEL = process.env.DEEPGRAM_MODEL ?? "nova-3"
+const DEEPGRAM_LANGUAGE = process.env.DEEPGRAM_LANGUAGE ?? "en"
+const DEEPGRAM_URL = process.env.DEEPGRAM_URL
+const DEEPGRAM_EXTRA_PARAMS = process.env.DEEPGRAM_EXTRA_PARAMS ?? ""
 
 interface AudioFrame {
   seq: number
@@ -40,10 +59,12 @@ interface AudioFrame {
 type Event =
   | {type: "transcript"; text: string; isFinal: boolean; language?: string; source?: string; t: number}
   | {type: "vad"; speaking: boolean; silentForMs?: number; t: number}
+  | {type: "ping"; t: number}
   | {type: "end"; reason: string}
 
 interface Run {
-  runId: string
+  runId: string // effective id: the phone's run id, or <phone id>-N after a rotation
+  phoneRunId: string
   startedAt: number
   lastSeen: number
   wav: WavFile | null
@@ -51,7 +72,6 @@ interface Run {
   rawPath: string | null
   rawBytes: number
   sinkFailed: boolean
-  segment: number
   format: string | null
   sampleRate: number | null
   chunks: number
@@ -62,6 +82,12 @@ interface Run {
   windowBytes: number
   windowStart: number
   posts: number
+  jsonlPath: string | null
+  dg: ReturnType<typeof createDeepgramTranscriber> | null
+  lastInterim: string
+  lastInterimAt: number
+  utterances: number
+  finishing: Promise<void> | null
 }
 
 // Local time with milliseconds, so these lines align with the dev sidecar's
@@ -73,43 +99,121 @@ const stamp = (): string => {
 }
 const log = (line: string): void => console.log(`${stamp()} [ingest] ${line}`)
 
-const runs = new Map<string, Run>()
+const store = new Store(DB_PATH)
+const runs = new Map<string, Run>() // effective id -> live run
+const aliases = new Map<string, string>() // phone run id -> current effective id
+const rotations = new Map<string, number>() // phone run id -> how many segments so far
+const finished = new Set<string>() // effective ids that are done
+const inFlightFinishes = new Set<Promise<void>>()
 
-function getRun(runId: string): Run {
-  let run = runs.get(runId)
-  if (!run) {
-    run = {
-      runId,
-      startedAt: Date.now(),
-      lastSeen: Date.now(),
-      wav: null,
-      rawFd: null,
-      rawPath: null,
-      rawBytes: 0,
-      sinkFailed: false,
-      segment: 0,
-      format: null,
-      sampleRate: null,
-      chunks: 0,
-      bytes: 0,
-      lastSeq: 0,
-      missing: 0,
-      windowChunks: 0,
-      windowBytes: 0,
-      windowStart: Date.now(),
-      posts: 0,
-    }
-    runs.set(runId, run)
-    log(`run ${runId} started`)
+function newRun(runId: string, phoneRunId: string): Run {
+  const run: Run = {
+    runId,
+    phoneRunId,
+    startedAt: Date.now(),
+    lastSeen: Date.now(),
+    wav: null,
+    rawFd: null,
+    rawPath: null,
+    rawBytes: 0,
+    sinkFailed: false,
+    format: null,
+    sampleRate: null,
+    chunks: 0,
+    bytes: 0,
+    lastSeq: 0,
+    missing: 0,
+    windowChunks: 0,
+    windowBytes: 0,
+    windowStart: Date.now(),
+    posts: 0,
+    jsonlPath: null,
+    dg: null,
+    lastInterim: "",
+    lastInterimAt: 0,
+    utterances: 0,
+    finishing: null,
   }
+  runs.set(runId, run)
+  store.startSession({runId, phoneRunId, startedAt: run.startedAt, provider: TRANSCRIBE})
+  log(`run ${runId} started`)
+  return run
+}
+
+/** Next derived id for a phone run whose current segment is finished. */
+function rotate(phoneRunId: string, why: string): string {
+  const n = (rotations.get(phoneRunId) ?? 1) + 1
+  rotations.set(phoneRunId, n)
+  const eff = `${phoneRunId}-${n}`
+  aliases.set(phoneRunId, eff)
+  log(`run ${phoneRunId}: ${why}; continuing as ${eff}`)
+  return eff
+}
+
+/** The live run for a phone run id, rotating when its current segment is finished. */
+function runFor(phoneRunId: string): Run {
+  let eff = aliases.get(phoneRunId) ?? phoneRunId
+  if (finished.has(eff)) eff = rotate(phoneRunId, "data arrived after the run was finalized")
+  const run = runs.get(eff) ?? newRun(eff, phoneRunId)
   run.lastSeen = Date.now()
   return run
 }
 
 function fileStem(run: Run): string {
   const t = new Date(run.startedAt).toISOString().replace(/[:.]/g, "-").slice(0, 19)
-  const part = run.segment > 0 ? `-part${run.segment + 1}` : ""
-  return join(RECORDINGS_DIR, `${t}-${run.runId}${part}`)
+  return join(RECORDINGS_DIR, `${t}-${run.runId}`)
+}
+
+function jsonl(run: Run, obj: Record<string, unknown>): void {
+  try {
+    if (!run.jsonlPath) {
+      mkdirSync(RECORDINGS_DIR, {recursive: true})
+      run.jsonlPath = `${fileStem(run)}.jsonl`
+    }
+    appendFileSync(run.jsonlPath, `${JSON.stringify({t: Date.now(), ...obj})}\n`)
+  } catch (err) {
+    log(`cannot append to ${run.jsonlPath ?? "jsonl"}: ${(err as Error).message}`)
+  }
+}
+
+function startTranscriber(run: Run, sampleRate: number): void {
+  if (TRANSCRIBE !== "deepgram" || run.dg) return
+  const label = (s: Segment): string => (s.speaker == null ? "S?" : `S${s.speaker}`)
+  run.dg = createDeepgramTranscriber({
+    apiKey: DEEPGRAM_API_KEY,
+    sampleRate,
+    url: DEEPGRAM_URL,
+    model: DEEPGRAM_MODEL,
+    language: DEEPGRAM_LANGUAGE,
+    extraParams: DEEPGRAM_EXTRA_PARAMS,
+    onFinal: (seg, speechFinal) => {
+      run.utterances++
+      log(`[${label(seg)} ${seg.tStart.toFixed(1)}-${seg.tEnd.toFixed(1)}s] ${seg.text}${speechFinal ? "" : " …"}`)
+      try {
+        store.insertUtterance({
+          runId: run.runId,
+          tStart: seg.tStart,
+          tEnd: seg.tEnd,
+          speakerLabel: label(seg),
+          text: seg.text,
+          confidence: seg.confidence,
+          speechFinal,
+          provider: "deepgram",
+        })
+      } catch (err) {
+        log(`cannot store utterance: ${(err as Error).message}`)
+      }
+      jsonl(run, {type: "utterance", provider: "deepgram", speaker: label(seg), tStart: seg.tStart, tEnd: seg.tEnd, text: seg.text, confidence: seg.confidence, speechFinal})
+    },
+    onInterim: (seg) => {
+      const now = Date.now()
+      if (seg.text === run.lastInterim || now - run.lastInterimAt < INTERIM_PRINT_MS) return
+      run.lastInterim = seg.text
+      run.lastInterimAt = now
+      log(`~ [${label(seg)}] ${seg.text}`)
+    },
+    onEvent: (line) => log(line),
+  })
 }
 
 function openSink(run: Run, frame: AudioFrame, firstBytes: number): void {
@@ -121,14 +225,16 @@ function openSink(run: Run, frame: AudioFrame, firstBytes: number): void {
     mkdirSync(RECORDINGS_DIR, {recursive: true})
     run.rawFd = openSync(run.rawPath, "w")
     log(`audio format=${frame.format} sampleRate=${frame.sampleRate ?? "unknown"} firstChunkBytes=${firstBytes}`)
-    log(`LC3 frames are saved raw to ${run.rawPath}; they need an LC3 decoder (liblc3). The phone's mic mode decides PCM vs LC3`)
+    log(`LC3 frames are saved raw to ${run.rawPath}; they need an LC3 decoder (liblc3), and live transcription is off for this run`)
   } else {
     const sampleRate = frame.sampleRate ?? DEFAULT_SAMPLE_RATE
     run.wav = new WavFile(`${fileStem(run)}.wav`, {sampleRate, channels: 1, bitsPerSample: 16})
+    store.setSessionAudio(run.runId, run.wav.path, sampleRate)
     log(
       `audio format=${frame.format ?? "unknown (assuming 16-bit mono PCM)"} ` +
         `sampleRate=${frame.sampleRate ?? `unknown (assuming ${DEFAULT_SAMPLE_RATE})`} firstChunkBytes=${firstBytes} -> ${run.wav.path}`,
     )
+    startTranscriber(run, sampleRate)
   }
 }
 
@@ -149,21 +255,24 @@ function closeSinks(run: Run): string {
   return run.sinkFailed ? "recording failed (see error above)" : "no audio received"
 }
 
-function onFrame(run: Run, frame: AudioFrame): void {
+/** True when this frame's (reported) format or sample rate differs from the run's. */
+function formatChanged(run: Run, frame: AudioFrame): boolean {
+  if (run.wav === null && run.rawFd === null) return false
+  const sr = frame.sampleRate ?? run.sampleRate
+  const fmt = frame.format ?? run.format
+  return sr !== run.sampleRate || fmt !== run.format
+}
+
+/** Decode and write one frame; returns the PCM bytes for the transcriber (or null). */
+function onFrame(run: Run, frame: AudioFrame): Uint8Array | null {
   const pcm = Buffer.from(frame.data, "base64")
   run.chunks++
   run.bytes += pcm.byteLength
   if (run.lastSeq > 0 && frame.seq > run.lastSeq + 1) run.missing += frame.seq - run.lastSeq - 1
   run.lastSeq = Math.max(run.lastSeq, frame.seq)
-  if (run.sinkFailed) return
+  if (run.sinkFailed) return null
   try {
-    if (run.wav === null && run.rawFd === null) {
-      openSink(run, frame, pcm.byteLength)
-    } else if ((frame.sampleRate ?? null) !== run.sampleRate || (frame.format ?? null) !== run.format) {
-      log(`audio format/sampleRate changed ${run.format}/${run.sampleRate} -> ${frame.format}/${frame.sampleRate}; closed ${closeSinks(run)}`)
-      run.segment++
-      openSink(run, frame, pcm.byteLength)
-    }
+    if (run.wav === null && run.rawFd === null) openSink(run, frame, pcm.byteLength)
     if (run.wav) run.wav.append(pcm)
     else if (run.rawFd !== null) {
       writeSync(run.rawFd, pcm)
@@ -179,10 +288,11 @@ function onFrame(run: Run, frame: AudioFrame): void {
     } catch {
       /* ignore */
     }
-    return
+    return null
   }
   run.windowChunks++
   run.windowBytes += pcm.byteLength
+  return run.wav ? pcm : null
 }
 
 function maybeStats(run: Run): void {
@@ -192,7 +302,7 @@ function maybeStats(run: Run): void {
   const total = run.wav ? `${run.wav.seconds.toFixed(1)}s` : `${(run.rawBytes / 1024).toFixed(0)} kB`
   log(
     `audio ${(run.windowChunks / secs).toFixed(0)} chunks/s ${(run.windowBytes / secs / 1024).toFixed(1)} kB/s total=${total}` +
-      `${run.missing ? ` missing=${run.missing}` : ""}`,
+      `${run.missing ? ` missing=${run.missing}` : ""}${run.dg ? ` deepgram=${run.dg.state}` : ""}`,
   )
   run.windowChunks = 0
   run.windowBytes = 0
@@ -204,55 +314,113 @@ function onEvent(run: Run, ev: Event): void {
     case "transcript": {
       const kind = ev.isFinal ? "FINAL  " : "interim"
       const src = `${ev.source ?? "?"}${ev.language ? ` ${ev.language}` : ""}`
-      log(`${kind} [${src}] ${ev.text}`)
+      log(`mentra ${kind} [${src}] ${ev.text}`)
+      if (ev.isFinal) {
+        try {
+          store.insertEvent(run.runId, "mentra_transcript", ev)
+        } catch (err) {
+          log(`cannot store event: ${(err as Error).message}`)
+        }
+        jsonl(run, {type: "mentra_transcript", text: ev.text, language: ev.language, source: ev.source, phoneT: ev.t})
+      }
       return
     }
     case "vad":
       log(ev.speaking ? "speech started" : `speech stopped${ev.silentForMs != null ? ` (quiet for ${ev.silentForMs}ms)` : ""}`)
+      try {
+        store.insertEvent(run.runId, "vad", ev)
+      } catch (err) {
+        log(`cannot store event: ${(err as Error).message}`)
+      }
+      jsonl(run, {type: "vad", speaking: ev.speaking, silentForMs: ev.silentForMs, phoneT: ev.t})
       return
-    case "end":
-      finishRun(run, `phone session ended: ${ev.reason}`)
-      return
+    case "ping":
+      return // lastSeen was refreshed by runFor()
     default:
       log(`run ${run.runId}: unknown event type ${(ev as {type?: string}).type}`)
   }
 }
 
-function finishRun(run: Run, why: string): void {
-  const summary = closeSinks(run)
-  log(`${why}; run ${run.runId}: ${run.chunks} chunks, ${(run.bytes / 1024).toFixed(0)} kB in ${run.posts} posts -> ${summary}`)
+/** Finalize a run exactly once; safe to call concurrently. */
+function finishRun(run: Run, why: string): Promise<void> {
+  if (run.finishing) return run.finishing
+  finished.add(run.runId)
   runs.delete(run.runId)
+  const p = (async () => {
+    try {
+      if (run.dg) {
+        await run.dg.close()
+        run.dg = null
+      }
+      const summary = closeSinks(run)
+      store.endSession(run.runId, why)
+      log(
+        `${why}; run ${run.runId}: ${run.chunks} chunks, ${(run.bytes / 1024).toFixed(0)} kB in ${run.posts} posts` +
+          `${run.utterances ? `, ${run.utterances} utterances in ${DB_PATH}` : ""} -> ${summary}`,
+      )
+    } catch (err) {
+      log(`finishing run ${run.runId} failed: ${(err as Error).message}`)
+    }
+  })()
+  run.finishing = p
+  inFlightFinishes.add(p)
+  void p.finally(() => inFlightFinishes.delete(p))
+  return p
 }
 
 setInterval(() => {
   const now = Date.now()
-  for (const run of runs.values()) {
-    if (now - run.lastSeen > IDLE_MS) finishRun(run, `no data for ${IDLE_MS / 1000}s`)
+  for (const run of [...runs.values()]) {
+    if (now - run.lastSeen > IDLE_MS) void finishRun(run, `no data for ${Math.round(IDLE_MS / 1000)}s`)
   }
 }, 5000)
 
 /** Handle one JSON object from either transport. Returns a short reply. */
-function handle(obj: unknown, via: string): string {
+async function handle(obj: unknown, via: string): Promise<string> {
   if (!obj || typeof obj !== "object") return "ignored: not an object"
   const o = obj as Record<string, unknown>
-  const runId = typeof o.runId === "string" ? o.runId : "unknown"
+  const phoneRunId = typeof o.runId === "string" && o.runId ? o.runId : "unknown"
   if (typeof o.userId === "string" && typeof o.packageName === "string") {
-    const run = getRun(runId)
-    log(`hello run=${runId} userId=${o.userId} package=${o.packageName} via=${via}`)
+    const run = runFor(phoneRunId)
+    store.startSession({runId: run.runId, phoneRunId, startedAt: run.startedAt, userId: o.userId, packageName: o.packageName, provider: TRANSCRIBE})
+    log(`hello run=${run.runId} userId=${o.userId} package=${o.packageName} via=${via}`)
     run.posts++
     return "ok"
   }
   if (Array.isArray(o.chunks)) {
-    const run = getRun(runId)
+    let run = runFor(phoneRunId)
     run.posts++
-    for (const f of o.chunks as AudioFrame[]) {
-      if (f && typeof f.data === "string") onFrame(run, f)
+    const pcmParts: Uint8Array[] = []
+    const flushToDeepgram = (): void => {
+      if (run.dg && pcmParts.length) run.dg.send(pcmParts.length === 1 ? pcmParts[0] : Buffer.concat(pcmParts))
+      pcmParts.length = 0
     }
+    for (const f of o.chunks as AudioFrame[]) {
+      if (!f || typeof f.data !== "string") continue
+      if (formatChanged(run, f)) {
+        // New sample rate or encoding: finish this segment and continue under a
+        // new run id so the WAV header, the transcriber and the times stay true.
+        flushToDeepgram()
+        await finishRun(run, `audio format changed ${run.format}/${run.sampleRate} -> ${f.format ?? run.format}/${f.sampleRate ?? run.sampleRate}`)
+        run = runFor(phoneRunId)
+      }
+      const pcm = onFrame(run, f)
+      if (pcm) pcmParts.push(pcm)
+    }
+    flushToDeepgram()
     maybeStats(run)
     return `ok ${o.chunks.length}`
   }
   if (typeof o.type === "string") {
-    const run = getRun(runId)
+    if (o.type === "end") {
+      const eff = aliases.get(phoneRunId) ?? phoneRunId
+      const run = runs.get(eff)
+      if (!run) return "ignored: run already finished"
+      run.posts++
+      await finishRun(run, `phone session ended: ${String(o.reason ?? "")}`)
+      return "ok"
+    }
+    const run = runFor(phoneRunId)
     run.posts++
     onEvent(run, o as Event)
     return "ok"
@@ -265,7 +433,7 @@ const server = Bun.serve<{id: number}>({
   port: PORT,
   async fetch(req, srv) {
     const url = new URL(req.url)
-    if (url.pathname === "/health") return Response.json({ok: true, service: "fieldassist-ingest", runs: [...runs.keys()]})
+    if (url.pathname === "/health") return Response.json({ok: true, service: "fieldassist-ingest", transcribe: TRANSCRIBE, runs: [...runs.keys()]})
     if ((req.headers.get("upgrade") ?? "").toLowerCase() === "websocket") {
       const protocol = (req.headers.get("sec-websocket-protocol") ?? "").split(",")[0].trim()
       const headers: Record<string, string> = protocol ? {"Sec-WebSocket-Protocol": protocol} : {}
@@ -281,7 +449,12 @@ const server = Bun.serve<{id: number}>({
         log(`POST ${url.pathname}: body is not JSON`)
         return new Response("not JSON", {status: 400})
       }
-      return new Response(handle(obj, "http"), {headers: {"content-type": "text/plain"}})
+      try {
+        return new Response(await handle(obj, "http"), {headers: {"content-type": "text/plain"}})
+      } catch (err) {
+        log(`POST ${url.pathname} failed: ${(err as Error).message}`)
+        return new Response("error", {status: 500})
+      }
     }
     return new Response("fieldassist ingest: POST JSON to /ingest/{hello,event,audio}\n")
   },
@@ -297,7 +470,7 @@ const server = Bun.serve<{id: number}>({
         log(`WebSocket: ignoring non-JSON frame`)
         return
       }
-      handle(obj, "ws")
+      handle(obj, "ws").catch((err) => log(`WebSocket message failed: ${(err as Error).message}`))
     },
     close() {
       log(`WebSocket client disconnected`)
@@ -311,5 +484,23 @@ const server = Bun.serve<{id: number}>({
 
 // Create the folder up front so it is visible before the first chunk arrives.
 mkdirSync(RECORDINGS_DIR, {recursive: true})
-log(`listening on http://0.0.0.0:${server.port}/ingest  (recordings -> ${RECORDINGS_DIR})`)
+log(`listening on http://0.0.0.0:${server.port}/ingest  (recordings -> ${RECORDINGS_DIR}, db -> ${DB_PATH})`)
+if (TRANSCRIBE === "deepgram") {
+  if (!DEEPGRAM_API_KEY) log(`transcription: TRANSCRIBE=deepgram but DEEPGRAM_API_KEY is empty; connections will fail (set the key in .env and restart)`)
+  else log(`transcription: Deepgram ${DEEPGRAM_MODEL} (${DEEPGRAM_LANGUAGE}, diarize_model=latest)${DEEPGRAM_URL ? ` at ${DEEPGRAM_URL}` : ""}`)
+} else {
+  log(`transcription: off (set DEEPGRAM_API_KEY in .env to enable Deepgram with speaker labels)`)
+}
 log(`waiting for the phone; transcript lines and audio stats will appear here`)
+
+let shuttingDown = false
+const shutdown = async (): Promise<void> => {
+  if (shuttingDown) return
+  shuttingDown = true
+  await Promise.all([...runs.values()].map((run) => finishRun(run, "server stopping")))
+  await Promise.all([...inFlightFinishes])
+  store.close()
+  process.exit(0)
+}
+process.on("SIGINT", () => void shutdown())
+process.on("SIGTERM", () => void shutdown())

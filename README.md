@@ -6,7 +6,10 @@ Mentra App runs this miniapp's background code on the phone, and two things come
 - **Console lines** via the CLI's dev server (`mentra-miniapp dev`, run by `bun dev`): session events,
   transcripts, location. This is the "is the connection good" signal.
 - **Raw microphone audio + transcripts** via HTTP POST from the phone to `server/ingest.ts` on the Mac,
-  which prints what it receives and writes the audio to `recordings/`. (WebSockets from this iPhone to the
+  which prints what it receives and writes the audio to `recordings/`.
+- **Live transcription with speaker labels** on the Mac: the same PCM is streamed to Deepgram (`nova-3`,
+  diarization on) and every utterance is printed as `[S0 12.3-14.1s] text`, stored in
+  `data/fieldassist.sqlite` and appended to `recordings/<run>.jsonl`. (WebSockets from this iPhone to the
   Mac fail, even from Safari; plain HTTP from the miniapp's background works, see Troubleshooting.)
 
 ```
@@ -109,7 +112,7 @@ Notes on that output:
   file names use UTC. `[fieldassist <id>]` identifies one background run; a new id means the context
   restarted (dev reload, crash recovery, or re-install).
 - The order of the `cloud` and `glasses` lines varies. A run is finalized on the phone's `end` event or after
-  15 s without audio (`no data for 15s`), whichever comes first; a new run id makes a new file.
+  30 s without any post (`no data for 30s`), whichever comes first; a new run id makes a new file.
 - The audio format is only known at runtime. The SDK says frames are "PCM or LC3 depending on the phone's
   mic mode", with `sampleRate` and `format` present only "when reported". The ingest server writes 16-bit
   mono PCM to `.wav` (sample rate from the phone, or 16000 if it does not say) and LC3 frames raw to `.lc3`.
@@ -119,6 +122,67 @@ Notes on that output:
   announces a teardown (disable, uninstall, dev respawn), while `bun dev` is still running. The docs do not
   say whether the host sends that notice before a dev `respawn-bg`, so a missing `SESSION ENDED` followed by
   a fresh `SESSION STARTING` with a new run id is not itself a failure.
+
+## Transcription with speaker labels (Deepgram)
+
+1. Create an API key at https://console.deepgram.com and put it in `fieldassist/.env`:
+
+```
+DEEPGRAM_API_KEY=your_key_here
+```
+
+2. `./run.sh` prints `speech : Deepgram nova-3 with speaker labels` and the ingest server logs
+   `transcription: Deepgram nova-3 (en, diarize_model=latest)`. Without a key it says `transcription: off` and only records.
+
+What happens per run: the first PCM audio frame opens one Deepgram stream (`wss://api.deepgram.com/v1/listen`,
+`linear16` at the phone's sample rate, `diarize_model=latest`, `interim_results=true`, `smart_format=true`,
+`utterance_end_ms=1000`), every POSTed batch is forwarded as binary frames, a `KeepAlive` goes out when idle,
+and the run's `end` (or the idle timeout) sends `CloseStream`. LC3 runs are recorded raw only (the server logs
+`live transcription is off for this run`). Segment times are seconds into that session's audio, so they index
+straight into the WAV named in its `sessions.wav_path` (`sample = t * sampleRate`), which is what the later
+speaker recognition milestone needs. If the socket drops, it reconnects with backoff and keeps the time base;
+while Deepgram is unreachable at most 60 s of audio is queued, older audio is skipped (the WAV still has it).
+
+Output:
+
+```
+[ingest] deepgram connected (nova-3, 16000 Hz, diarize_model=latest)
+[ingest] ~ [S0] so this is a test of          <- interim, printed at most every 0.7 s
+[ingest] [S0 3.1-5.0s] So this is a test of the glasses.
+[ingest] [S1 5.4-6.2s] Sounds good. …          <- "…" = no end-of-speech pause yet
+[ingest] utterance end at 6.9s
+[ingest] mentra FINAL   [cloud en-US] So this is a test of the glasses.   <- Mentra's own transcript, for comparison
+```
+
+Labels (`S0`, `S1`, ...) are per run and anonymous: Deepgram's streaming diarization identifies voices
+within a session, not people across sessions. `S?` means Deepgram returned words without a speaker.
+
+Runs and segments: the phone sends a heartbeat every 5 s, and the server finalizes a run after 30 s without
+any post (or on the phone's `end`). If data for the same phone run arrives later, or the audio format or sample
+rate changes mid-run, the server continues under a derived id (`<runId>-2`, `-3`, ...) with its own WAV,
+Deepgram stream, label space (times restart at 0) and `sessions` row, so every utterance row points at the WAV
+it was measured against via `sessions.wav_path` (`sessions.phone_run_id` ties the segments together).
+
+Storage (`server/store.ts`, `bun:sqlite`): `sessions` (run id, phone run id, start/end, WAV path, sample rate),
+`utterances` (run id, `t_start`, `t_end`, `speaker_label`, `text`, `confidence`, `speech_final`,
+`provider`), `events` (Mentra final transcripts, speech start/stop). Empty tables for the next milestone:
+`people`, `voiceprints`, `speaker_assignments`. Query it with any SQLite client, e.g.
+`sqlite3 data/fieldassist.sqlite "select speaker_label, text from utterances order by id"`.
+
+Options in `.env` (read at start; restart `./run.sh` after changing them): `DEEPGRAM_MODEL` (default `nova-3`),
+`DEEPGRAM_LANGUAGE` (default `en`; `multi` for code-switching), `DEEPGRAM_EXTRA_PARAMS` (extra query
+parameters that override the defaults, e.g. `keyterm=Mentra`; `diarize_model=latest` is already sent),
+`TRANSCRIBE=off` to record only (any value other than `deepgram` means off), `FIELDASSIST_DB` to move the
+database. Mentra's own transcript lines (`mentra FINAL ...`) stay on as a comparison; remove the
+`session.transcription.on` block in `src/background/index.ts` to drop them.
+
+Far-field speech: the glasses can gate quiet audio from other people (on-glasses voice-activity detection
+and the center-mic loudness gate). If other speakers are faint or missing in the recordings, build with
+`MENTRA_PUBLIC_CONTINUOUS_AUDIO=1 ./run.sh`, which makes the miniapp call
+`session.mic.setVoiceActivityDetectionEnabled(false)` and `setLoudnessGateEnabled(false)` after the session is
+ready. Per the SDK types, disabling VAD keeps audio frames flowing and the loudness-gate override lasts until the
+miniapp disconnects; whether the phone honoured each call shows in the log as `glasses VAD gating disabled` /
+`loudness gate disabled` or `could not disable ...`.
 
 ## Verification checklist
 
@@ -134,11 +198,13 @@ Notes on that output:
    The `[ingest]` copy proves the phone → Mac uplink carries data.
 7. `audio first chunk format=... sampleRate=...` on the phone side, `[ingest] audio format=... -> recordings/...`
    on the Mac side, then `audio N chunks/s` lines once per second while audio flows.
+7b. With a Deepgram key: `deepgram connected`, then `[S0 ...]` lines with your words; a second person
+   speaking gets a second label. `sqlite3 data/fieldassist.sqlite "select count(*) from utterances"` grows.
 8. `speech started` / `speech stopped` lines bracket what you say.
 9. Open the tile on the phone: it shows `Background: ready (user ...)` and the latest transcript.
 10. Move around (or toggle location on the phone): `location lat=... lng=...` lines appear.
-11. Ctrl+C. The run is finalized by the phone's `end` event or, at the latest, 15 s of silence on the Mac
-    (`no data for 15s`): `[ingest] ... run <id>: N chunks, N kB in N posts -> .../recordings/<file>.wav (Ns, N kB)`.
+11. Ctrl+C. The run is finalized by the phone's `end` event or, at the latest, 30 s without posts
+    (`no data for 30s`): `[ingest] ... run <id>: N chunks, N kB in N posts -> .../recordings/<file>.wav (Ns, N kB)`.
     Then `afinfo recordings/<file>.wav` (format, duration) and `afplay recordings/<file>.wav` (listen).
 12. Disable FieldAssist in the Mentra App (or save a file under `src/background/`): expect
     `SESSION ENDED reason=...`; after a save the dev server prints `respawn-bg` and a fresh
@@ -158,11 +224,16 @@ Notes on that output:
 | No `[MentraJS]` lines in the terminal although the tile says dev install = yes | The CLI's console bridge is a WebSocket to port 3001, and WebSockets from this iPhone to this Mac fail (Safari fails too, close code 1006; the Mentra App reports "bad response from the server"). Plain HTTP works, which is why the ingest path uses POST | Use the `[ingest]` lines as the terminal view. Hot reload also depends on that WebSocket: rescan the QR after edits. The app only opens that bridge when the miniapp is spawned, so after a scan also disable and re-enable FieldAssist in the Mentra App; forwarded logs are throttled (100/min) and lines containing key/token/auth/secret are redacted |
 | `no ingest URL baked in` | `bun dev` was started without `MENTRA_PUBLIC_INGEST_URL` | Use `./run.sh`, or export the variable before `bun dev` |
 | Transcripts arrive but no `audio` lines | OS mic prompt denied (subscription "succeeds but no chunks arrive"); or the phone's voice-activity gate / loudness gate ("Barrier") is suppressing quiet audio | Re-grant the mic; speak; for continuous capture the SDK exposes `session.mic.setVoiceActivityDetectionEnabled(false)` and `setLoudnessGateEnabled(false)` (subject to the user's phone settings) |
-| `audio format=...lc3` and a `.lc3` file | The phone's mic mode is LC3 | Decode with an LC3 decoder (liblc3). Where the mic mode is set is not documented |
+| `audio format=...lc3` and a `.lc3` file | The phone's mic mode is LC3 | Decode with an LC3 decoder (liblc3); no live Deepgram transcription for LC3 runs. Where the mic mode is set is not documented |
 | `[ingest] cannot write audio: ...` | `recordings/` not writable, disk full, or a bad `INGEST_DIR` | Fix the path/disk; transcripts keep flowing, audio for that connection is discarded until you restart |
 | `afplay` sounds wrong (pitch/speed) | The phone did not report `sampleRate`; the server assumed 16000 | Read the `audio format=` line; change `DEFAULT_SAMPLE_RATE` in `server/ingest.ts` |
 | `audio ... dropped=N` on the phone, `missing=N` on the Mac | The phone keeps at most 30 pending posts; older ones are dropped when the Mac is unreachable | Expected after a Wi-Fi blip; persistent drops mean the link is bad |
+| `[ingest] run <id>: data arrived after the run was finalized; continuing as <id>-2` | The Mac saw no post for 30 s (phone asleep, Wi-Fi blip) and then data resumed | Normal; see "Runs and segments" above |
 | Port 3100 in use | Another process on the Mac | `INGEST_PORT=3101 ./run.sh` (run.sh bakes the matching URL) |
+| `deepgram socket error ... check DEEPGRAM_API_KEY` and `closed (code 1006); reconnecting in Ns` | Wrong or missing key, or a rejected query parameter (for example `diarize=true` together with `diarize_model`) | Fix the key in `.env` and restart `./run.sh` (the key is read at startup; the WAV keeps recording meanwhile); leave `DEEPGRAM_EXTRA_PARAMS` empty; `TRANSCRIBE=off` to record only |
+| Transcripts arrive but every label is `S0` | Only one voice reached the microphone clearly, or far-field speech was gated out | Have the other person speak closer; rebuild with `MENTRA_PUBLIC_CONTINUOUS_AUDIO=1 ./run.sh` |
+| `[S? ...]` labels | Deepgram returned words without a speaker field | Harmless; `diarize_model=latest` is sent by default, so check `DEEPGRAM_EXTRA_PARAMS` did not replace it |
+| Labels restart at `S0` and times at 0 in the middle of a conversation | The run was finalized (30 s without any post, or an audio format change) and continued as `<runId>-2` | Normal; each segment has its own WAV and session row. With the heartbeat this only happens when the phone really went away |
 | Transcripts show on the phone tile but not in the terminal | Sidecar (port 3001) unreachable | Check `sidecar listening`; firewall; same Wi-Fi |
 | No `location` lines | `LOCATION` not declared or the OS location prompt was denied; or the phone has not moved | Check manifest and phone permission; walk around |
 | Miniapp stops or the Mentra App reports a missing entry right after an edit | The rebuild failed (error printed above the `reload` / `respawn-bg` line). `build.ts` wipes `dist/` first, so a failed build ships an empty bundle | Fix the error and save again; the next rebuild reinstalls |
@@ -177,14 +248,17 @@ fieldassist/
 ├── miniapp.json              # identity, permissions (MICROPHONE, LOCATION), hardware (MICROPHONE), port 3000
 ├── build.ts                  # scaffolder's Bun.build script + the __INGEST_URL__ constant + the CLI's background runtime guard
 ├── run.sh                    # starts server/ingest.ts, bakes the ingest URL, then `bun dev` (extra args go to the CLI)
-├── .env.example              # optional overrides: MENTRA_PUBLIC_INGEST_URL, INGEST_PORT, INGEST_DIR
+├── .env.example              # DEEPGRAM_API_KEY (+ model/language/extra params, TRANSCRIBE), FIELDASSIST_DB, ingest URL/port/dir, MENTRA_PUBLIC_CONTINUOUS_AUDIO
 ├── icon.png                  # generated 512x512 PNG (the scaffolder's placeholder was a corrupt file)
 ├── src/background/index.ts   # runs on the phone: logging, transcripts, location, raw audio uplink
 ├── src/shared/channels.ts    # typed background → UI messages
 ├── src/ui/                   # tiny status page shown when the tile is opened
-├── server/ingest.ts          # runs on the Mac: WebSocket receiver, prints transcripts/stats, writes recordings
+├── server/ingest.ts          # runs on the Mac: HTTP receiver, prints transcripts/stats, writes recordings, drives the transcriber
+├── server/deepgram.ts        # Deepgram live stream + diarization (segments per speaker)
+├── server/store.ts           # SQLite: sessions, utterances, events (+ empty people/voiceprints tables)
+├── data/fieldassist.sqlite   # created on first run (git-ignored)
 ├── server/wav.ts             # 16-bit PCM WAV writer (header patched on every write)
-└── server/wav.test.ts        # `bun test`
+└── server/*.test.ts          # `bun test` (WAV writer, Deepgram segment parser, store)
 ```
 
 Versions: `@mentra/miniapp` 3.4.0 (npm `latest`), `@mentra/miniapp-cli` 0.1.0-dev.2 (npm `dev` tag; it

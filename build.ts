@@ -52,6 +52,8 @@ for (const [k, v] of Object.entries(process.env)) {
 define["__INGEST_URL__"] = JSON.stringify(process.env.MENTRA_PUBLIC_INGEST_URL ?? "")
 // Build id shown on the phone tile, so you can tell a fresh bundle from a cached one.
 define["__BUILD_ID__"] = JSON.stringify(new Date().toISOString().slice(0, 19).replace("T", " "))
+// MENTRA_PUBLIC_CONTINUOUS_AUDIO=1 asks the glasses to stop gating quiet audio (see src/background).
+define["__CONTINUOUS_AUDIO__"] = JSON.stringify(process.env.MENTRA_PUBLIC_CONTINUOUS_AUDIO === "1")
 
 const backgroundResult = await Bun.build({
   entrypoints: ["./src/background/index.ts"],

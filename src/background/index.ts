@@ -28,6 +28,7 @@ import type {Channels, Diag} from "../shared/channels"
 // which the phone's JS engine does not have.
 declare const __INGEST_URL__: string
 declare const __BUILD_ID__: string
+declare const __CONTINUOUS_AUDIO__: boolean
 // Accepts http://host:port[/anything] or the older ws://host:port/ingest form.
 const INGEST_BASE: string = __INGEST_URL__.replace(/^ws(s?):\/\//, "http$1://").replace(/\/ingest\/?$/, "").replace(/\/$/, "")
 const BUILD_ID: string = __BUILD_ID__
@@ -56,7 +57,10 @@ interface AudioFrame {
 type UplinkEvent =
   | {type: "transcript"; text: string; isFinal: boolean; language?: string; source?: string; t: number}
   | {type: "vad"; speaking: boolean; silentForMs?: number; t: number}
+  | {type: "ping"; t: number}
   | {type: "end"; reason: string}
+
+const HEARTBEAT_MS = 5000
 
 const AUDIO_BATCH_FRAMES = 10
 const AUDIO_BATCH_MS = 250
@@ -183,6 +187,9 @@ registerMiniapp<Channels>((session) => {
   const pushDiag = (): void => session.ui.send("diag", diag())
   // send() drops silently when no WebView is open, so this is cheap.
   const diagTimer = setInterval(pushDiag, 2000)
+  // Heartbeat so the Mac can tell "quiet" from "gone" (it finalizes a run
+  // after 30 s without any post). Tiny, and only while this context lives.
+  const heartbeat = uplink ? setInterval(() => uplink.event({type: "ping", t: Date.now()}), HEARTBEAT_MS) : null
 
   // The SDK fires onOpen only once the session is ready (CONNECT_ACK received),
   // so userId is populated here.
@@ -201,6 +208,20 @@ registerMiniapp<Channels>((session) => {
     )
     log(`capabilities=${JSON.stringify(caps ?? null).slice(0, 500)}`)
     uplink?.hello(session.userId, session.packageName)
+    if (__CONTINUOUS_AUDIO__) {
+      // Other people are far from the glasses mic; the on-glasses voice-activity
+      // detection and the center-mic loudness gate ("Barrier") can drop their
+      // quiet speech. Both calls are documented in mic.d.ts and honored subject
+      // to the user's phone settings.
+      session.mic
+        .setVoiceActivityDetectionEnabled(false)
+        .then(() => log("glasses VAD gating disabled"))
+        .catch((e: unknown) => log(`could not disable VAD gating: ${errText(e)}`))
+      session.mic
+        .setLoudnessGateEnabled(false)
+        .then(() => log("loudness gate disabled"))
+        .catch((e: unknown) => log(`could not disable loudness gate: ${errText(e)}`))
+    }
   })
 
   // Fires once right away with the current snapshot (expect "disconnected
@@ -287,6 +308,7 @@ registerMiniapp<Channels>((session) => {
   const logEnded = (reason: string): void => {
     endedLogged = true
     clearInterval(diagTimer)
+    if (heartbeat) clearInterval(heartbeat)
     const uptimeS = Math.round((Date.now() - startedAt) / 1000)
     log(`SESSION ENDED reason=${reason} uptime=${uptimeS}s`)
   }
