@@ -1,0 +1,25 @@
+{
+  "name": "fieldassist",
+  "private": true,
+  "scripts": {
+    "dev": "mentra-miniapp dev",
+    "build": "bun run build.ts",
+    "typecheck": "tsc --noEmit",
+    "release": "mentra-miniapp release",
+    "pack": "mentra-miniapp pack",
+    "ingest": "bun run server/ingest.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@mentra/miniapp": "3.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@mentra/miniapp-cli": "0.1.0-dev.2",
+    "@types/bun": "^1.4.4",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.6.0"
+  }
+}

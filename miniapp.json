@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/@mentra/miniapp-cli/schema/miniapp.schema.json",
+  "packageName": "com.fieldassist.app",
+  "version": "0.3.0",
+  "name": "FieldAssist",
+  "description": "Streams live transcripts and location from Mentra Live to a developer terminal.",
+  "icon": "icon.png",
+  "type": "standard",
+  "sdkVersion": "3.4.0",
+  "minHostVersion": "1.42.0",
+  "port": 3000,
+  "entry": {
+    "background": "background/index.js",
+    "ui": "ui/index.html"
+  },
+  "permissions": [
+    {
+      "type": "MICROPHONE",
+      "description": "Transcribe what you say through the glasses microphone."
+    },
+    {
+      "type": "LOCATION",
+      "description": "Record where each note was spoken."
+    }
+  ],
+  "hardwareRequirements": [
+    {
+      "type": "MICROPHONE",
+      "level": "REQUIRED",
+      "description": "Needed for live transcription."
+    }
+  ]
+}
