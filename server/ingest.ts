@@ -9,6 +9,8 @@
  *                        {runId, type: "ping", t}      (heartbeat every few seconds)
  *                        {runId, type: "end", reason}
  *   POST /ingest/audio   {runId, chunks: [{seq, data (base64), sampleRate?, format?, t}, ...]}
+ * It also serves a read-only dashboard (server/dashboard.ts): GET /dashboard,
+ * GET /api/sessions, GET /api/sessions/:runId/utterances?after=N.
  * A WebSocket on any path carrying the same objects as text frames is also
  * accepted, for clients where WebSockets work.
  *
@@ -29,6 +31,7 @@
  */
 import {appendFileSync, closeSync, mkdirSync, openSync, writeSync} from "node:fs"
 import {join} from "node:path"
+import {dashboardRoute} from "./dashboard"
 import {createDeepgramTranscriber, type Segment} from "./deepgram"
 import {Store} from "./store"
 import {WavFile} from "./wav"
@@ -456,7 +459,9 @@ const server = Bun.serve<{id: number}>({
         return new Response("error", {status: 500})
       }
     }
-    return new Response("fieldassist ingest: POST JSON to /ingest/{hello,event,audio}\n")
+    const page = await dashboardRoute(req, url, store)
+    if (page) return page
+    return new Response("fieldassist ingest: POST JSON to /ingest/{hello,event,audio}; dashboard at /dashboard\n")
   },
   websocket: {
     open(ws) {
@@ -491,6 +496,7 @@ if (TRANSCRIBE === "deepgram") {
 } else {
   log(`transcription: off (set DEEPGRAM_API_KEY in .env to enable Deepgram with speaker labels)`)
 }
+log(`dashboard: http://<this-mac-ip>:${server.port}/dashboard (open it on the phone)`)
 log(`waiting for the phone; transcript lines and audio stats will appear here`)
 
 let shuttingDown = false
