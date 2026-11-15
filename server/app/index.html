@@ -160,7 +160,7 @@
       h("p", {style: {color: "var(--soft)", fontSize: "17px"}}, "Know who’s speaking, what they said and where you met. Your glasses whisper it in your ear, and your phone keeps it all."),
       h("div", {style: {flex: "1"}}),
       h("a", {class: "btn", href: "#/how"}, "Get started"),
-      h("a", {class: "btn ghost", href: "#/garden"}, svg(ICON.tree, "currentColor", 20), "Walk the Memory Garden"),
+      h("a", {class: "btn ghost", href: "#/garden"}, svg(ICON.tree, "currentColor", 20), "Walk the Voice Garden"),
       h("a", {class: "btn ghost", href: "#/people", style: {border: "0"}}, "I’ve set this up before"));
   }
 
@@ -359,7 +359,6 @@
     timer = setInterval(tick, 2000);
   }
 
-  const GARDEN_URL = "https://ibrahimakamran.github.io/Memory-Garden/";
   async function GardenScreen(screen) {
     let count = 0;
     try { count = (await api("/api/people")).people.length; } catch {}
@@ -369,16 +368,15 @@
         h("h2", null, title), h("p", {class: "muted", style: {fontSize: "14px"}}, text), action));
     put(screen,
       back("#/people", "Mind Palace"),
-      h("div", {class: "eyebrow"}, "PICoVoice × Memory Garden"),
-      h("h1", null, "Everyone you met, grown into a garden"),
-      h("p", {style: {color: "var(--soft)"}}, "Memory Garden turns each person into a tree that grows beside their head in a webcam AR mirror, with a card of what you know about them. Bring your Mind Palace into it."),
+      h("div", {class: "eyebrow"}, "Example project"),
+      h("h1", null, "Voice Garden"),
+      h("p", {style: {color: "var(--soft)"}}, "Everyone in your Mind Palace becomes a tree. When they talk through the glasses, their tree grows and their words float up from it. On the laptop, the AR mirror puts each tree beside the person’s head."),
       h("ol", {class: "steps"},
-        step(1, "Download your garden file", count ? plural(count, "person").replace("persons", "people") + " from your Mind Palace, with their facts and what they said." : "Your Mind Palace is empty. Save someone first, or try the garden’s own demo trees.",
-          count ? h("a", {class: "btn sm", href: "/api/garden.json", download: "", style: {alignSelf: "flex-start"}}, "Download picovoice-garden.json") : null),
-        step(2, "Open Memory Garden on the laptop", "It needs Chrome or Edge with a webcam and mic, so open it on the laptop rather than this phone.",
-          h("a", {class: "btn sm ghost", href: GARDEN_URL, target: "_blank", rel: "noopener", style: {alignSelf: "flex-start"}}, "Open Memory Garden")),
-        step(3, "Import, then link faces", "Click ⬆ Import and pick the file. Each person appears as a tree. Turn on the AR mirror, and when they step in front of the camera, use “Link face in view” on their tree.", null)),
-      h("p", {class: "muted small"}, "Memory Garden keeps everything in that browser. Import again after you meet more people; people already in the garden are skipped."),
+        step(1, "Open the garden", count ? plural(count, "person").replace("persons", "people") + " will be planted automatically and kept in sync." : "Your Mind Palace is empty. Save someone from Live first, or press Demo in the garden.",
+          h("a", {class: "btn sm", href: "/garden", style: {alignSelf: "flex-start"}}, "Open Voice Garden")),
+        step(2, "For the AR mirror, use the laptop", "Camera and mic need a secure page, so on the Mac open http://localhost:3100/garden in Chrome and press AR mirror. On this phone the 3D garden still grows live.", null),
+        step(3, "Talk", "Lines spoken through the glasses by someone you saved grow their tree. Deleting someone here removes their tree too.", null)),
+      h("p", {class: "muted small"}, "Voice Garden is based on Voiceprint Garden AR by Ibrahim Kamran."),
       tabs("people"));
   }
 

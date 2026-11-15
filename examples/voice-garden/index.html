@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<!--
+  Voice Garden: the example project for PICoVoice.
+  Original app: Voiceprint Garden AR by Ibrahim Kamran,
+  https://github.com/ibrahimakamran/Memory-Garden (https://ibrahimakamran.github.io/Memory-Garden/).
+  Copied here with the title changed and one addition: the "PICoVoice bridge" block at the end of
+  the main script. Served by the PICoVoice server at /garden, that block plants a tree for everyone
+  in the Mind Palace and grows their tree from what they say through the glasses.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Voice Garden — a PICoVoice example</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg: rgba(10,16,32,.84); --line: rgba(160,200,255,.18); --txt:#e8f0ff; --dim:#9fb0cc; --acc:#9dffb8; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#0a1328; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--txt); }
+  #cam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; display:none; background:#000; }
+  canvas { position:fixed; inset:0; z-index:1; display:block; }
+  #cards { position:fixed; inset:0; pointer-events:none; z-index:3; }
+  .hidden { display:none !important; }
+  #hud { position:fixed; top:14px; left:14px; width:370px; max-height:calc(100vh - 28px); overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:14px 16px; backdrop-filter: blur(8px); font-size:13px; line-height:1.4; z-index:5; }
+  #hud h1 { margin:0 0 2px; font-size:18px; }
+  .sub { color:var(--dim); margin-bottom:8px; font-size:12px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0; align-items:center; }
+  .sep { border-top:1px solid var(--line); margin:9px 0 4px; }
+  button { background:#1c2a48; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:6px 9px; font-size:12.5px; cursor:pointer; font-family:inherit; }
+  button:hover { background:#25385f; }
+  button.on { background:#24577a; border-color:#5fb3e6; }
+  button.primary { background:#1f5c3a; border-color:#3fa66a; }
+  button.primary:hover { background:#28744a; }
+  button.danger { background:#4a1d26; border-color:#8a3646; }
+  input[type=text], textarea, select { background:#0e1830; color:var(--txt); border:1px solid var(--line); border-radius:7px; padding:5px 7px; font-size:12.5px; font-family:inherit; }
+  input[type=range] { width:120px; accent-color:#6fd39a; }
+  .meter { height:8px; background:#0e1830; border-radius:4px; overflow:hidden; flex:1; border:1px solid var(--line); }
+  .meter > div { height:100%; width:0%; background:linear-gradient(90deg,#3fa66a,#c8ff7a); }
+  .k { color:var(--dim); }
+  #speaker { font-weight:600; }
+  #interim { color:#cfe0ff; font-style:italic; min-height:18px; margin-top:6px; }
+  #log { margin-top:4px; max-height:110px; overflow:hidden; font-size:12px; color:var(--dim); }
+  #log div { margin:2px 0; } #log b { color:var(--txt); }
+  .help { margin-top:8px; font-size:11.5px; color:var(--dim); border-top:1px solid var(--line); padding-top:7px; }
+  #editor { position:fixed; right:14px; top:14px; width:330px; max-height:calc(100vh - 28px); overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:12px 14px; backdrop-filter: blur(8px); z-index:6; font-size:13px; }
+  #editor textarea { width:100%; box-sizing:border-box; height:56px; resize:vertical; }
+  #editor input[type=text] { width:100%; box-sizing:border-box; }
+  #editor .edhead { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  #edFacts .fact { display:flex; gap:6px; align-items:baseline; margin:3px 0; }
+  #edFacts .fact span.v { flex:1; }
+  #edFacts .fact button { padding:1px 6px; font-size:11px; }
+  .gene { display:grid; grid-template-columns:72px 1fr 34px; gap:6px; align-items:center; font-size:12px; margin:2px 0; }
+  .gene input { width:100%; }
+  details summary { cursor:pointer; color:var(--dim); margin:8px 0 4px; }
+  #enroll { position:fixed; left:50%; top:16%; transform:translateX(-50%); background:var(--bg); border:1px solid #3fa66a; border-radius:16px; padding:18px 24px; text-align:center; z-index:7; width:440px; }
+  #enroll h2 { margin:0 0 6px; font-size:20px; }
+  #enroll .bar { height:10px; background:#0e1830; border-radius:5px; overflow:hidden; margin:12px 0 6px; }
+  #enroll .bar div { height:100%; width:0; background:linear-gradient(90deg,#3fa66a,#ffd27a); }
+  #toast { position:fixed; bottom:84px; left:50%; transform:translateX(-50%); background:rgba(20,30,55,.94); border:1px solid var(--line); padding:9px 16px; border-radius:10px; opacity:0; transition:opacity .3s; z-index:9; pointer-events:none; font-size:14px; max-width:80vw; text-align:center; }
+  #toast.show { opacity:1; }
+  #crosshair { position:fixed; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px; border-radius:50%; background:rgba(255,255,255,.5); pointer-events:none; z-index:4; }
+  /* face cards (AR mirror) */
+  .fcard { position:absolute; left:0; top:0; transform:translate(-50%,-100%); pointer-events:auto; background:rgba(8,14,30,.8); border:1px solid var(--line); border-left:4px solid var(--c,#9dffb8); border-radius:12px; padding:8px 11px; min-width:160px; max-width:270px; font-size:12.5px; backdrop-filter:blur(6px); cursor:pointer; transition:box-shadow .2s; }
+  .fcard .nm { font-weight:700; font-size:15px; }
+  .fcard .tk { display:none; }
+  .fcard.talking .tk { display:inline; }
+  .fcard.talking { box-shadow:0 0 0 2px var(--c), 0 0 22px var(--c); }
+  .fcard .facts { color:#d6e4ff; margin-top:3px; line-height:1.45; }
+  .fcard .mini { color:var(--dim); font-size:11px; margin-top:4px; }
+  .fcard .more { display:none; margin-top:5px; color:#cfe0ff; font-size:11.5px; border-top:1px solid var(--line); padding-top:5px; }
+  .fcard.sel .more { display:block; }
+  .fcard.sel { border-color:var(--c); }
+  .fcard select { margin-top:5px; width:100%; }
+  .fcard .row { margin:5px 0 0; }
+  #xrOverlay { position:fixed; left:0; right:0; bottom:0; padding:12px; background:rgba(8,14,30,.75); color:var(--txt); font-size:14px; z-index:8; }
+  #xrStatus { font-weight:600; margin-bottom:6px; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<video id="cam" playsinline muted></video>
+<div id="cards"></div>
+
+<div id="hud">
+  <h1>🌱 Voice Garden <span style="font-size:12px;color:#9dffb8">AR</span></h1>
+  <div class="sub">Your voice, made visible. Talk → grow. Laugh → bloom.</div>
+  <div class="row" id="pvRow" style="display:none"><span class="k">PICoVoice:</span> <span id="pvStatus">—</span></div>
+  <div class="row">
+    <button id="btnGarden" class="on">🌳 Garden</button>
+    <button id="btnMirror">🪞 AR mirror (M)</button>
+    <span id="xrButtons" class="row" style="margin:0"></span>
+  </div>
+  <div id="camRow" class="row hidden">
+    <select id="camSelect" style="max-width:190px"></select>
+    <label class="k"><input type="checkbox" id="camMirror" checked> mirror</label>
+    <span id="faceState" class="k"></span>
+  </div>
+  <div class="sep"></div>
+  <div class="row">
+    <button id="btnStart" class="primary">🎤 Start listening</button>
+    <button id="btnEnroll">🌱 Plant voice (N)</button>
+    <button id="btnAddTree">➕ Add tree (T)</button>
+  </div>
+  <div class="row"><input type="text" id="enrollName" placeholder="Name for next voice (optional — or just say it)" style="flex:1"></div>
+  <div class="row"><span class="k">Mic</span><div class="meter"><div id="meter"></div></div><span id="micState" class="k">off</span></div>
+  <div class="row"><span class="k">Speaker:</span> <span id="speaker">—</span></div>
+  <div class="row"><span class="k" id="idDebug" style="font-size:11.5px"></span></div>
+  <div class="row"><span class="k">Attribute to</span><select id="pinSelect"><option value="">Auto (voice + face)</option></select></div>
+  <details>
+    <summary>Recognition tuning</summary>
+    <div class="row"><span class="k" style="width:96px">Voice match</span><input type="range" id="thresh" min="0.2" max="2.5" step="0.05" value="0.9"><span id="threshVal" class="k">0.90</span></div>
+    <div class="row"><span class="k" style="width:96px">Face match</span><input type="range" id="fthresh" min="0.02" max="0.2" step="0.005" value="0.07"><span id="fthreshVal" class="k">0.070</span></div>
+    <div class="row"><span class="k" style="width:96px">Mouth motion</span><input type="range" id="mthresh" min="0.005" max="0.08" step="0.005" value="0.025"><span id="mthreshVal" class="k">0.025</span></div>
+  </details>
+  <div id="interim"></div>
+  <div id="log"></div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnBloom">🌸 Bloom (B)</button>
+    <button id="btnDemo">🧪 Demo</button>
+    <button id="btnExport">⬇ Export</button>
+    <button id="btnImport">⬆ Import</button>
+    <button id="btnReset" class="danger">Reset</button>
+    <input type="file" id="fileImport" accept="application/json" style="display:none">
+  </div>
+  <div class="help">
+    <b>AR mirror:</b> stand in front of the webcam — your plant grows beside your head with what it knows about you. Click a card to edit. Unknown face? Link it or plant a voice from its card.<br>
+    <b>Garden:</b> drag to look · WASD walk · click a plant to edit.<br>
+    Keys: N plant voice · T add tree · B bloom · M mirror · G (hold) grow selected · 1–9 pin speaker, 0 auto · H hide · Esc close<br>
+    <b>Headset:</b> R-trigger select · L-trigger plant voice · grip bloom · in AR, point at the floor + trigger to move the selected plant.
+  </div>
+</div>
+
+<div id="editor" class="hidden">
+  <div class="edhead"><b>🌳 Edit tree</b><button id="edClose">✕</button></div>
+  <input type="text" id="edName" placeholder="Name">
+  <div class="k" style="margin:6px 0 3px">Your notes</div>
+  <textarea id="edNotes" placeholder="Met at the AR table; wants to try haptics…"></textarea>
+  <div class="k" style="margin:6px 0 3px">What you know about them</div>
+  <div id="edFacts"></div>
+  <div class="row">
+    <select id="edFactKey"><option>from</option><option>building</option><option>studies</option><option>works at</option><option>role</option><option>likes</option><option>contact</option><option>other</option></select>
+    <input type="text" id="edFactVal" placeholder="e.g. Chicago" style="flex:1;width:auto">
+    <button id="edFactAdd">+</button>
+  </div>
+  <details open>
+    <summary>Shape — the 10 voice genes</summary>
+    <div id="edGenes"></div>
+    <div class="row"><button id="edRandom">🎲 Randomize</button><button id="edRevert">↺ Shape from voice</button></div>
+  </details>
+  <div class="row"><span class="k" style="width:60px">Growth</span><input type="range" id="edGrowth" min="0" max="600" step="5" style="flex:1"><span id="edGrowthVal" class="k" style="width:52px"></span></div>
+  <div class="row"><span class="k" style="width:60px">Blooms</span><input type="range" id="edBloom" min="0" max="12" step="1" style="flex:1"><span id="edBloomVal" class="k" style="width:52px"></span></div>
+  <div class="row"><span class="k" style="width:60px">AR spot</span>
+    <select id="edSide"><option value="auto">Beside head (auto)</option><option value="left">Left of head</option><option value="right">Right of head</option><option value="crown">On top of head 👑</option></select></div>
+  <div class="row">
+    <button id="edRecord">🎙 Re-record voice</button>
+    <button id="edLinkFace">👤 Link face in view</button>
+    <button id="edUnlinkFace">Forget face</button>
+  </div>
+  <div class="row">
+    <button id="edPin">📌 Attribute speech</button>
+    <button id="edDelete" class="danger">Delete tree</button>
+  </div>
+  <div class="k" id="edInfo" style="font-size:11.5px"></div>
+</div>
+
+<div id="enroll" class="hidden">
+  <h2>🎙️ Listening to a new voice…</h2>
+  <div class="k">Have them say something like:</div>
+  <div style="margin-top:6px;font-style:italic">“Hi, my name is ___. I'm from ___, I study ___, and we're building ___.”</div>
+  <div class="bar"><div id="enrollBar"></div></div>
+  <div class="k" id="enrollText">Waiting for voice…</div>
+  <div class="row" style="justify-content:center"><button id="enrollCancel">Cancel</button></div>
+</div>
+
+<div id="xrOverlay" class="hidden">
+  <div id="xrStatus">AR</div>
+  <div class="row"><button id="xrPlant">🌱 Plant voice</button><button id="xrBloom">🌸 Bloom</button><button id="xrExit">✕ Exit</button></div>
+  <div class="k">Tap a plant to select it · tap the floor to move the selected plant there</div>
+</div>
+
+<div id="toast"></div>
+<div id="crosshair"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+
+/* =====================================================================
+   CONFIG
+   ===================================================================== */
+const CFG = {
+  FRAME_MS: 25,            // audio analysis rate (40 frames/s)
+  ENROLL_SECONDS: 4,       // seconds of *voiced* audio needed to plant a voice
+  ENROLL_TIMEOUT: 30,
+  ID_WINDOW: 80,           // voiced frames (~2 s) used for voice ID
+  ID_THRESHOLD: 0.9,       // voice match distance (slider)
+  FACE_THRESHOLD: 0.07,    // face-geometry match distance (slider)
+  MOUTH_VAR: 0.025,        // jaw-motion needed to count a visible face as "talking" (slider)
+  GROWTH_TAU: 90,          // seconds of talk to reach ~63% of full size
+  SPEAKER_MEMORY_MS: 4000,
+  MAX_WORDS: 70,
+  AR_SCALE: 0.35,          // plant scale in headset/phone AR
+  FACE_WIDTH_M: 0.15,      // assumed real face width — sets AR mirror depth
+};
+const MEDIAPIPE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const STORE_KEY = 'voiceprint-garden-v1';
+const TAU = Math.PI * 2;
+let mode = 'garden';       // 'garden' | 'mirror'
+let xrMode = null;         // null | 'immersive-vr' | 'immersive-ar'
+
+/* =====================================================================
+   UTILITIES
+   ===================================================================== */
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const sigmoid = x => 1 / (1 + Math.exp(-x));
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
+const std = a => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1)); };
+const median = a => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hashNums(arr) { let h = 2166136261; for (const v of arr) { h ^= (Math.round(v * 1000) | 0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function gauss(rng) { const u = Math.max(1e-9, rng()), v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v); }
+const uid = () => Math.random().toString(36).slice(2, 10);
+const fmtDur = s => s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+function ago(ts) { if (!ts) return 'never'; const s = (Date.now() - ts) / 1000; if (s < 60) return 'just now'; if (s < 3600) return `${Math.round(s / 60)}m ago`; return `${Math.round(s / 3600)}h ago`; }
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const $ = id => document.getElementById(id);
+let toastTimer;
+function toast(msg, ms = 2600) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms); }
+
+/* =====================================================================
+   AUDIO ENGINE — mic → per-frame features (MFCC, pitch, timbre, energy)
+   ===================================================================== */
+class VoiceEngine {
+  constructor() { this.running = false; this.noiseFloor = 0.004; this.listeners = []; this.lastFrame = null; }
+  async start() {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone API unavailable — open via http://localhost or https (not file://) in Chrome or Edge.');
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await this.ctx.resume();
+    const src = this.ctx.createMediaStreamSource(this.stream);
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 70;
+    this.an = this.ctx.createAnalyser(); this.an.fftSize = 2048; this.an.smoothingTimeConstant = 0;
+    src.connect(hp); hp.connect(this.an);
+    this.sr = this.ctx.sampleRate; this.nBins = this.an.frequencyBinCount;
+    this.freq = new Float32Array(this.nBins); this.time = new Float32Array(this.an.fftSize); this.pow = new Float32Array(this.nBins);
+    this.buildMel(26, 80, 7600);
+    this.running = true;
+    this.timer = setInterval(() => this.tick(), CFG.FRAME_MS);
+  }
+  buildMel(M, fmin, fmax) {
+    const mel = f => 2595 * Math.log10(1 + f / 700), inv = m => 700 * (10 ** (m / 2595) - 1);
+    const binHz = this.sr / this.an.fftSize;
+    const mMin = mel(fmin), mMax = mel(Math.min(fmax, this.sr / 2 - 100));
+    const pts = []; for (let i = 0; i < M + 2; i++) pts.push(inv(mMin + (mMax - mMin) * i / (M + 1)) / binHz);
+    this.mel = [];
+    for (let m = 0; m < M; m++) {
+      const l = pts[m], c = pts[m + 1], r = pts[m + 2], w = [];
+      for (let b = Math.floor(l); b <= Math.ceil(r) && b < this.nBins; b++) {
+        let v = 0;
+        if (b >= l && b <= c) v = (b - l) / Math.max(1e-6, c - l);
+        else if (b > c && b <= r) v = (r - b) / Math.max(1e-6, r - c);
+        if (v > 0) w.push([b, v]);
+      }
+      this.mel.push(w);
+    }
+    this.M = M; this.melE = new Float32Array(M);
+    this.dct = [];
+    for (let k = 1; k <= 12; k++) { const row = new Float32Array(M); for (let n = 0; n < M; n++) row[n] = Math.cos(Math.PI * k * (n + 0.5) / M) * Math.sqrt(2 / M); this.dct.push(row); }
+    this.binLo = Math.floor(100 / binHz); this.binHi = Math.min(this.nBins - 1, Math.floor(7000 / binHz)); this.binHz = binHz;
+  }
+  tick() {
+    const an = this.an; an.getFloatTimeDomainData(this.time); an.getFloatFrequencyData(this.freq);
+    const x = this.time, N = x.length;
+    let s = 0; for (let i = 0; i < N; i++) s += x[i] * x[i];
+    const rms = Math.sqrt(s / N);
+    const speaking = rms > Math.max(this.noiseFloor * 3, 0.006);
+    if (!speaking) this.noiseFloor = Math.max(0.0005, this.noiseFloor * 0.995 + rms * 0.005);
+    let psum = 0, wsum = 0, lsum = 0, cnt = 0;
+    for (let b = 0; b < this.nBins; b++) this.pow[b] = Math.pow(10, (this.freq[b] < -160 ? -160 : this.freq[b]) / 10);
+    for (let b = this.binLo; b <= this.binHi; b++) { const p = this.pow[b] + 1e-14; psum += p; wsum += p * b * this.binHz; lsum += Math.log(p); cnt++; }
+    const centroid = wsum / psum, flatness = Math.exp(lsum / cnt) / (psum / cnt);
+    const M = this.M, E = this.melE;
+    for (let m = 0; m < M; m++) { let e = 0; for (const [b, w] of this.mel[m]) e += this.pow[b] * w; E[m] = Math.log(e + 1e-12); }
+    const mfcc = new Array(12);
+    for (let k = 0; k < 12; k++) { let c = 0; const row = this.dct[k]; for (let n = 0; n < M; n++) c += row[n] * E[n]; mfcc[k] = c; }
+    let sx = 0, sy = 0, sxy = 0, sxx = 0; for (let m = 0; m < M; m++) { sx += m; sy += E[m]; sxy += m * E[m]; sxx += m * m; }
+    const tilt = (M * sxy - sx * sy) / (M * sxx - sx * sx);
+    const pitch = speaking ? this.detectPitch() : 0;
+    const now = performance.now(), dt = this.lastT ? Math.min(0.1, (now - this.lastT) / 1000) : CFG.FRAME_MS / 1000; this.lastT = now;
+    const f = { t: now, dt, rms, speaking, pitch, voiced: speaking && pitch > 0, mfcc, centroid, flatness, tilt };
+    this.lastFrame = f;
+    for (const l of this.listeners) l(f);
+  }
+  detectPitch() { // normalized autocorrelation on a 2× decimated buffer, 70–400 Hz
+    const D = this.sr >= 32000 ? 2 : 1, src = this.time;
+    if (!this.dec || this.dec.length !== src.length / D) this.dec = new Float32Array(src.length / D);
+    const x = this.dec; for (let i = 0; i < x.length; i++) { let a = 0; for (let k = 0; k < D; k++) a += src[i * D + k]; x[i] = a / D; }
+    const sr = this.sr / D;
+    const minLag = Math.floor(sr / 400), maxLag = Math.min(Math.floor(sr / 70), x.length >> 1);
+    const W = x.length - maxLag;
+    let e0 = 0; for (let i = 0; i < W; i++) e0 += x[i] * x[i];
+    let el = 0; for (let i = minLag; i < minLag + W; i++) el += x[i] * x[i];
+    const r = new Float32Array(maxLag + 2); let best = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let c = 0; for (let i = 0; i < W; i++) c += x[i] * x[i + lag];
+      const v = c / Math.sqrt(e0 * el + 1e-12); r[lag] = v; if (v > best) best = v;
+      el += x[lag + W] * x[lag + W] - x[lag] * x[lag];
+    }
+    if (best < 0.55) return 0;
+    for (let lag = minLag + 1; lag < maxLag; lag++) {
+      if (r[lag] >= best * 0.9 && r[lag] >= r[lag - 1] && r[lag] >= r[lag + 1]) {
+        const a = r[lag - 1], b = r[lag], c = r[lag + 1]; const d = (a - c) / (2 * (a - 2 * b + c) || 1);
+        return sr / (lag + clamp(d, -1, 1));
+      }
+    }
+    return 0;
+  }
+}
+
+class RunningNorm {
+  constructor(d) { this.d = d; this.n = 0; this.mean = new Array(d).fill(0); this.M2 = new Array(d).fill(0); }
+  push(v) { this.n = Math.min(this.n + 1, 30000); for (let i = 0; i < this.d; i++) { const dl = v[i] - this.mean[i]; this.mean[i] += dl / this.n; this.M2[i] += dl * (v[i] - this.mean[i]); if (this.n >= 30000) this.M2[i] *= 0.99997; } }
+  sd(i) { const floor = i === 12 ? 0.15 : 0.5; return this.n < 30 ? (i === 12 ? 0.5 : 3) : Math.max(floor, Math.sqrt(this.M2[i] / (this.n - 1))); }
+  toJSON() { return { d: this.d, n: this.n, mean: this.mean, M2: this.M2 }; }
+  static from(o) { const r = new RunningNorm(13); if (o && o.d === 13) Object.assign(r, o); return r; }
+}
+const idVec = f => [...f.mfcc, Math.log2(f.pitch)];
+const ID_W = [1.5, 1.5, 1.3, 1.3, 1, 1, 1, 1, 1, 1, 1, 1, 2.2];
+
+class LaughDetector {
+  constructor() { this.env = []; this.pit = []; this.sp = []; this.score = 0; this.cool = 0; }
+  push(f, refPitch) {
+    this.env.push(f.rms); this.pit.push(f.pitch); this.sp.push(f.speaking ? 1 : 0);
+    if (this.env.length > 48) { this.env.shift(); this.pit.shift(); this.sp.shift(); }
+    if (this.cool > 0) { this.cool--; return false; }
+    if (this.env.length < 48) return false;
+    const m = mean(this.env), depth = std(this.env) / (m + 1e-9), speakingFrac = mean(this.sp);
+    const voicedP = this.pit.filter(p => p > 0), voicedFrac = voicedP.length / this.pit.length;
+    const xs = this.env.map(v => v - m); let r0 = 0; for (const v of xs) r0 += v * v;
+    let best = 0; for (let l = 5; l <= 12; l++) { let c = 0; for (let i = 0; i + l < xs.length; i++) c += xs[i] * xs[i + l]; best = Math.max(best, c / (r0 + 1e-12)); }
+    const mp = median(voicedP), pitchUp = refPitch ? mp > refPitch * 1.12 : mp > 230;
+    const isLaugh = speakingFrac > 0.5 && depth > 0.55 && best > 0.3 && voicedFrac > 0.25 && pitchUp;
+    this.score = isLaugh ? this.score + 1 : Math.max(0, this.score - 0.5);
+    if (this.score >= 6) { this.score = 0; this.cool = 80; return true; }
+    return false;
+  }
+}
+
+/* =====================================================================
+   VOICE → GENOME
+   ===================================================================== */
+const GENE_NAMES = ['height', 'spread', 'branches', 'depth', 'twist', 'curl', 'stem hue', 'leaf', 'flower hue', 'petals'];
+const DRIVERS = [[0, -1.4], [1, 1.4], [3, 1.2], [10, 1.2], [7, 1.2], [4, 1.3], [8, 1.3], [2, -1.3], [0, 1.7], [6, 1.3]];
+const PROJ = (() => { const r = mulberry32(1337); return Array.from({ length: 10 }, () => Array.from({ length: 14 }, () => gauss(r) * 0.45)); })();
+function genomeFromU(u) { return PROJ.map((row, i) => { let s = 0; for (let j = 0; j < 14; j++) s += row[j] * u[j]; s += DRIVERS[i][1] * u[DRIVERS[i][0]]; return sigmoid(1.5 * s); }); }
+const seedFromU = u => hashNums(u.map(v => Math.round(v * 4) / 4));
+function describeVoice(t) {
+  if (!t) return 'No voice recorded yet';
+  const range = t.pitchHz < 140 ? 'Deep' : t.pitchHz < 200 ? 'Mid-range' : 'High';
+  const timbre = t.centroid < 1200 ? 'warm' : t.centroid > 1900 ? 'bright' : 'balanced';
+  const melody = t.pitchVar > 3.5 ? 'melodic' : t.pitchVar < 1.8 ? 'steady' : 'conversational';
+  return `${range} voice (${Math.round(t.pitchHz)} Hz), ${timbre} timbre, ${melody}`;
+}
+class Enrollment {
+  constructor(name, target = null, track = null) { Object.assign(this, { name, target, track }); this.start = performance.now(); this.voiced = 0; this.voicedSec = 0; this.idSum = new Array(13).fill(0); this.pitches = []; this.cents = []; this.flats = []; this.tilts = []; this.rmsList = []; this.mf = [[], [], [], []]; this.transcripts = []; }
+  push(f) {
+    if (f.speaking) this.rmsList.push(f.rms);
+    if (!f.voiced) return;
+    this.voiced++; this.voicedSec += f.dt;
+    const v = idVec(f); for (let i = 0; i < 13; i++) this.idSum[i] += v[i];
+    this.pitches.push(f.pitch); this.cents.push(f.centroid); this.flats.push(f.flatness); this.tilts.push(f.tilt);
+    for (let k = 0; k < 4; k++) this.mf[k].push(f.mfcc[k]);
+  }
+  get progress() { return clamp(this.voicedSec / CFG.ENROLL_SECONDS, 0, 1); }
+  get elapsed() { return (performance.now() - this.start) / 1000; }
+  finish() {
+    const idMean = this.idSum.map(v => v / this.voiced);
+    const pitchHz = median(this.pitches), pitchVar = std(this.pitches.map(p => 12 * Math.log2(p / pitchHz)));
+    const centroid = median(this.cents), flat = mean(this.flats), tilt = mean(this.tilts);
+    const dyn = std(this.rmsList) / (mean(this.rmsList) + 1e-9);
+    const mm = this.mf.map(mean), ms = this.mf.map(std), c = v => clamp(v, -1.5, 1.5);
+    const u = [
+      c(Math.log2(pitchHz / 150) * 1.5), c((pitchVar - 2.5) / 2), c(Math.log2(centroid / 1400) * 1.2),
+      c((flat - 0.12) / 0.12), c((dyn - 0.6) / 0.35), Math.tanh((tilt + 0.15) * 10),
+      Math.tanh(mm[0] / 8), Math.tanh(mm[1] / 6), Math.tanh(mm[2] / 5), Math.tanh(mm[3] / 4),
+      Math.tanh((ms[0] - 3) / 2), Math.tanh((ms[1] - 2.5) / 2), Math.tanh((ms[2] - 2) / 2), Math.tanh((ms[3] - 2) / 2),
+    ];
+    return { idMean, u, traits: { pitchHz, pitchVar, centroid, dyn } };
+  }
+}
+
+/* =====================================================================
+   FACT EXTRACTION
+   ===================================================================== */
+const STOP = new Set(`a an the and or but so to of in on at for with from by is are was were be been being i im i'm me my mine you your yours we our they them their it its it's this that these those there here what which who whom whose when where why how do does did doing have has had having just really very like yeah yes no not okay ok um uh oh well also too can could would should will shall may might must going gonna wanna kind sort thing things lot get got make made know think mean say said go went see actually right that's don't can't i've i'd you're we're they're there's what's let's about into than then some any all more most much many other such only own same out up down over again once because both each few further here's how's off ours ourselves while cool nice pretty stuff something maybe probably definitely basically literally guess sure thanks thank hello hey name`.split(/\s+/));
+const NOT_NAMES = new Set(['Gonna', 'Going', 'Not', 'Just', 'So', 'Really', 'Here', 'Sorry', 'Good', 'Fine', 'Excited', 'Happy', 'Working', 'Building', 'From', 'Studying', 'Like', 'Into', 'Also', 'Still', 'Very', 'Pretty', 'Super', 'Doing', 'Trying', 'Looking', 'Glad', 'Okay', 'OK', 'Sure', 'Tired', 'Hungry', 'A', 'An', 'The', 'In', 'On', 'At']);
+const tidy = s => s.trim().replace(/^(the|a|an|my|our)\s+/i, '').split(/\s(?:and|but|because|so|which|who|where|though|although|i|we)\s/i)[0].split(/\s+/).slice(0, 6).join(' ').replace(/[.,!?;:]+$/, '');
+const FACT_RULES = [
+  ['name', /\b(?:my name is|my name's|call me|this is)\s+([a-z][a-z'-]+(?:\s[A-Z][a-z'-]+)?)/i],
+  ['name', /\bI'?m\s+([A-Z][a-z'-]{1,})\b/],
+  ['from', /\b(?:i'?m from|i am from|i come from|grew up in|i live in|based in|i'?m visiting from)\s+([^.,!?]+)/i],
+  ['works at', /\b(?:i work (?:at|for|with)|i'?m working (?:at|for)|i intern(?:ed)? at|i'?m an? intern at)\s+([^.,!?]+)/i],
+  ['building', /\b(?:we'?re building|i'?m building|we are building|we'?re making|i'?m making|our project is|my project is|our hack is|we'?re working on|i'?m working on)\s+([^.,!?]+)/i],
+  ['studies', /\b(?:i study|i'?m studying|i major in|i'?m majoring in|majoring in|my major is)\s+([^.,!?]+)/i],
+  ['role', /\b(?:i'?m an?|i am an?|i work as an?)\s+((?:[a-z]+\s){0,2}(?:student|engineer|designer|developer|researcher|artist|founder|scientist|teacher|professor|manager|programmer|musician|writer|freshman|sophomore|junior|senior|intern|hacker|maker|doctor|nurse|mentor|judge|organizer|product manager|data scientist))s?\b/i],
+  ['likes', /\b(?:i (?:really )?(?:like|love|enjoy)|i'?m (?:really )?into|i'?m passionate about|my hobby is|my hobbies are|i'?m obsessed with)\s+([^.,!?]+)/i],
+  ['contact', /\bmy (?:email|instagram|insta|twitter|handle|linkedin|discord|github) is\s+([^,!?]+)/i],
+];
+function extractFacts(text) {
+  const out = [];
+  for (const [key, re] of FACT_RULES) {
+    const m = text.match(re); if (!m) continue;
+    let v = key === 'name' ? m[1].trim() : tidy(m[1]);
+    if (!v || v.length < 2) continue;
+    if (key === 'name') { v = v.split(/\s+/).map(w => w[0].toUpperCase() + w.slice(1)).join(' '); if (NOT_NAMES.has(v.split(' ')[0]) || STOP.has(v.toLowerCase())) continue; }
+    out.push([key, v]);
+  }
+  return out;
+}
+const LAUGH_WORDS = /\b(ha(ha)+|he(he)+|lol|lmao|laugh(ing|s)?|hilarious|that's funny)\b/i;
+
+/* =====================================================================
+   PERSISTENT STATE
+   ===================================================================== */
+const state = {
+  profiles: [], norm: new RunningNorm(13),
+  current: null, lastSpeaker: null, lastSpeakerAt: 0, pinnedId: '', selected: null,
+  enrolling: null, idWindow: [], lastVoicedAt: 0, idInfo: '', loud: 0, lastIdAt: 0,
+};
+let dirty = false;
+const save = () => { dirty = true; };
+function flush() { if (!dirty) return; dirty = false; try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, profiles: state.profiles, norm: state.norm.toJSON() })); } catch (e) { console.warn(e); } }
+setInterval(flush, 1500); addEventListener('beforeunload', flush);
+function load() { try { const o = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); if (!o) return; state.profiles = o.profiles || []; state.norm = RunningNorm.from(o.norm); } catch (e) { console.warn('load failed', e); } }
+const profileById = id => state.profiles.find(p => p.id === id);
+function nextSlot() { const used = new Set(state.profiles.map(p => p.slot)); let i = 0; while (used.has(i)) i++; return i; }
+function slotPos(i) { const r = 1.8 + 1.05 * Math.sqrt(i); const a = i * 2.39996 + Math.PI; return new THREE.Vector3(Math.sin(a) * r, 0, Math.cos(a) * r); }
+function newProfile({ name, idMean, u, traits, demo = false }) {
+  return {
+    id: uid(), name: name || `Voice #${state.profiles.length + 1}`, autoName: !name, notes: '', demo,
+    createdAt: Date.now(), lastHeard: Date.now(), slot: nextSlot(), arSide: 'auto', arPos: null,
+    idMean, u, genome: genomeFromU(u), genomeEdited: false, seed: seedFromU(u), traits,
+    faceSig: null, faceN: 0,
+    talkSec: CFG.ENROLL_SECONDS, laughs: 0, words: 0, quotes: [], facts: {}, kw: {},
+  };
+}
+
+/* =====================================================================
+   THREE.JS SCENE
+   ===================================================================== */
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const BG = new THREE.Color(0x0a1328), FOG = new THREE.FogExp2(0x0a1328, 0.045);
+scene.background = BG; scene.fog = FOG;
+const rig = new THREE.Group(); rig.position.set(0, 0, 3.4); scene.add(rig);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.03, 200);
+camera.position.set(0, 1.6, 0); rig.add(camera);
+scene.add(new THREE.HemisphereLight(0x9fc4ff, 0x1d3020, 0.85));
+const moon = new THREE.DirectionalLight(0xcfe0ff, 0.9); moon.position.set(-6, 10, -4); scene.add(moon);
+camera.add(new THREE.PointLight(0xffffff, 0.6, 4));   // gentle fill light that follows the viewer
+
+const env = new THREE.Group(); scene.add(env);   // everything hidden in AR
+env.add(new THREE.Mesh(new THREE.SphereGeometry(90, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { top: { value: new THREE.Color(0x03060f) }, bottom: { value: new THREE.Color(0x1a2b52) } },
+  vertexShader: `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `uniform vec3 top; uniform vec3 bottom; varying vec3 vP; void main(){ float h = clamp(vP.y*1.6+0.1,0.0,1.0); gl_FragColor = vec4(mix(bottom, top, h), 1.0); }`,
+})));
+function dotTexture() { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(255,255,255,.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); }
+const DOT = dotTexture();
+{
+  const n = 1200, pos = new Float32Array(n * 3), r = mulberry32(7);
+  for (let i = 0; i < n; i++) { const th = r() * TAU, ph = Math.acos(r() * 0.95); pos.set([Math.sin(ph) * Math.cos(th) * 80, Math.cos(ph) * 80, Math.sin(ph) * Math.sin(th) * 80], i * 3); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  env.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 0.5, map: DOT, transparent: true, depthWrite: false, fog: false, color: 0xdde8ff })));
+  const m = new THREE.Mesh(new THREE.SphereGeometry(3, 24, 12), new THREE.MeshBasicMaterial({ color: 0xf4f1df, fog: false })); m.position.set(-30, 40, -60); env.add(m);
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshStandardMaterial({ color: 0x0e2a1d, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; env.add(ground);
+  const blade = new THREE.ConeGeometry(0.015, 0.22, 3); blade.translate(0, 0.11, 0);
+  const gn = 2500, grass = new THREE.InstancedMesh(blade, new THREE.MeshStandardMaterial({ color: 0x2f6b3e, roughness: 0.9 }), gn);
+  const rr = mulberry32(42), mm = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  for (let i = 0; i < gn; i++) { const R = 1 + Math.sqrt(rr()) * 18, a = rr() * TAU; p.set(Math.cos(a) * R, 0, Math.sin(a) * R); e.set((rr() - .5) * .5, rr() * TAU, (rr() - .5) * .5); q.setFromEuler(e); const k = 0.5 + rr() * 1.2; s.set(k, k, k); grass.setMatrixAt(i, mm.compose(p, q, s)); }
+  env.add(grass);
+}
+const fireflies = (() => {
+  const n = 220, pos = new Float32Array(n * 3), base = [], r = mulberry32(99);
+  for (let i = 0; i < n; i++) { const R = 1 + r() * 14, a = r() * TAU; base.push([Math.cos(a) * R, 0.3 + r() * 2.6, Math.sin(a) * R, r() * TAU, 0.3 + r() * 0.7]); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  env.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 0.07, map: DOT, color: 0xffe08a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+  return { update(t) { for (let i = 0; i < n; i++) { const b = base[i]; pos[i * 3] = b[0] + Math.sin(t * b[4] + b[3]) * 0.6; pos[i * 3 + 1] = b[1] + Math.sin(t * b[4] * 1.3 + b[3] * 2) * 0.25; pos[i * 3 + 2] = b[2] + Math.cos(t * b[4] * 0.8 + b[3]) * 0.6; } g.attributes.position.needsUpdate = true; } };
+})();
+const bursts = (() => {
+  const MAX = 700, pos = new Float32Array(MAX * 3), col = new Float32Array(MAX * 3), parts = [];
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({ size: 0.06, map: DOT, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const pts = new THREE.Points(g, mat); pts.frustumCulled = false; scene.add(pts);
+  return {
+    emit(origin, color, n = 90, scale = 1) { for (let i = 0; i < n; i++) { if (parts.length >= MAX) parts.shift(); const a = Math.random() * TAU, u = (Math.random() * 0.9 + 0.1) * scale; parts.push({ p: origin.clone(), v: new THREE.Vector3(Math.cos(a) * u, (0.6 + Math.random() * 1.4) * scale, Math.sin(a) * u), g: 0.6 * scale, life: 1.6 + Math.random() * 1.2, c: color.clone().offsetHSL((Math.random() - .5) * 0.08, 0, Math.random() * 0.2) }); } },
+    update(dt) {
+      mat.size = mode === 'mirror' ? 0.025 : 0.06;
+      for (let i = parts.length - 1; i >= 0; i--) { const q = parts[i]; q.life -= dt; if (q.life <= 0) { parts.splice(i, 1); continue; } q.v.y -= dt * q.g; q.v.multiplyScalar(1 - dt * 0.8); q.p.addScaledVector(q.v, dt); }
+      for (let i = 0; i < MAX; i++) { const q = parts[i]; if (q) { pos.set([q.p.x, q.p.y, q.p.z], i * 3); const k = Math.min(1, q.life); col.set([q.c.r * k, q.c.g * k, q.c.b * k], i * 3); } else pos.set([0, -99, 0], i * 3); }
+      g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true;
+    },
+  };
+})();
+function applyEnv() {
+  const show = mode === 'garden' && xrMode !== 'immersive-ar';
+  env.visible = show; scene.background = show ? BG : null; scene.fog = show ? FOG : null;
+}
+
+/* =====================================================================
+   PLANT — procedural, deterministic from genome + seed; instanced
+   ===================================================================== */
+const SEG_GEO = (() => { const g = new THREE.CylinderGeometry(0.8, 1, 1, 6, 1); g.translate(0, 0.5, 0); return g; })();
+const CENTER_GEO = new THREE.IcosahedronGeometry(1, 1);
+const PETAL_GEO = (() => { const s = new THREE.Shape(); s.moveTo(0, 0); s.bezierCurveTo(0.42, 0.25, 0.32, 0.85, 0, 1); s.bezierCurveTo(-0.32, 0.85, -0.42, 0.25, 0, 0); return new THREE.ShapeGeometry(s, 8); })();
+function leafGeo(w) { const s = new THREE.Shape(); s.moveTo(0, 0); s.bezierCurveTo(w, 0.25, w * 0.8, 0.75, 0, 1); s.bezierCurveTo(-w * 0.8, 0.75, -w, 0.25, 0, 0); return new THREE.ShapeGeometry(s, 6); }
+const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler();
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const hitboxes = [];
+function roundRect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+class Plant {
+  constructor(profile) {
+    this.p = profile; const g = this.g = profile.genome;
+    this.group = new THREE.Group(); this.home = slotPos(profile.slot); this.group.position.copy(this.home); scene.add(this.group);
+    this.body = new THREE.Group(); this.group.add(this.body);
+    this.gShow = 0.02; this.bShow = 0; this.pulse = 0; this.phase = Math.random() * TAU; this.dirty = true; this.top = 0.3;
+    this.hue = (0.55 + g[8] * 0.75) % 1;
+    this.flowerColor = new THREE.Color().setHSL(this.hue, 0.85, 0.58);
+    this.hex = '#' + this.flowerColor.getHexString();
+    this.buildTree();
+    const stemHue = [0.07, 0.28, 0.48, 0.78][Math.min(3, Math.floor(g[6] * 4))] + (g[6] * 4 % 1) * 0.05;
+    this.stemMat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(stemHue, 0.4, 0.3), roughness: 0.8 });
+    const leafHue = lerp(0.18, 0.55, g[6] * 0.6 + g[7] * 0.4);
+    this.leafMat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(leafHue, 0.6, 0.42), emissive: new THREE.Color().setHSL(leafHue, 0.8, 0.12), side: THREE.DoubleSide, roughness: 0.7 });
+    this.petalMat = new THREE.MeshStandardMaterial({ color: this.flowerColor, emissive: this.flowerColor.clone(), emissiveIntensity: 0.25, side: THREE.DoubleSide, roughness: 0.5 });
+    this.centerMat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL((this.hue + 0.12) % 1, 0.9, 0.6), emissive: new THREE.Color().setHSL((this.hue + 0.12) % 1, 1, 0.4), emissiveIntensity: 0.8 });
+    const mk = (geo, mat, n) => { const im = new THREE.InstancedMesh(geo, mat, Math.max(1, n)); im.frustumCulled = false; im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.body.add(im); return im; };
+    this.segIM = mk(SEG_GEO, this.stemMat, this.nodes.length);
+    this.leafGeo = leafGeo(lerp(0.5, 0.18, g[7]));
+    this.leafIM = mk(this.leafGeo, this.leafMat, this.leafCount);
+    this.centerIM = mk(CENTER_GEO, this.centerMat, this.tips.length);
+    this.petalIM = mk(PETAL_GEO, this.petalMat, this.tips.length * this.nPetals);
+    this.base = new THREE.Group(); this.group.add(this.base);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.012, 8, 48), new THREE.MeshBasicMaterial({ color: this.flowerColor, transparent: true, opacity: 0.8 }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.01; this.base.add(ring); this.ring = ring;
+    const soil = new THREE.Mesh(new THREE.CircleGeometry(0.36, 32), new THREE.MeshStandardMaterial({ color: 0x1a120c, roughness: 1 }));
+    soil.rotation.x = -Math.PI / 2; soil.position.y = 0.005; this.base.add(soil);
+    const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 2.6, 8), new THREE.MeshBasicMaterial({ visible: false }));
+    hb.position.y = 1.3; hb.userData.plant = this; this.group.add(hb); hitboxes.push(hb); this.hitbox = hb;
+    this.labelCanvas = document.createElement('canvas'); this.labelCanvas.width = 512; this.labelCanvas.height = 160;
+    this.labelTex = new THREE.CanvasTexture(this.labelCanvas); this.labelTex.colorSpace = THREE.SRGBColorSpace;
+    this.label = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.labelTex, transparent: true, depthWrite: false, fog: false }));
+    this.label.scale.set(1.0, 0.31, 1); this.group.add(this.label);
+    this.drawLabel();
+  }
+  buildTree() {
+    const g = this.g, rng = mulberry32(this.p.seed);
+    const kids = 2 + Math.min(2, Math.floor(g[2] * 3));
+    let depth = 3 + Math.min(3, Math.floor(g[3] * 4));
+    const nb = d => (kids ** (d + 1) - 1) / (kids - 1);
+    while (nb(depth) > 130 && depth > 2) depth--;
+    const height = lerp(0.8, 2.2, g[0]), decay = 0.72;
+    let sum = 0; for (let d = 0; d <= depth; d++) sum += decay ** d;
+    const L0 = height / sum, spread = lerp(0.25, 1.0, g[1]), twist = g[4] * Math.PI, curl = lerp(0.02, 0.5, g[5]);
+    const R0 = lerp(0.022, 0.055, g[0] * 0.5 + g[2] * 0.5), levelDur = 1 / (depth + 1);
+    this.nodes = []; this.tips = []; this.leafCount = 0;
+    this.nPetals = 4 + Math.min(5, Math.floor(g[9] * 6));
+    this.flowerSize = lerp(0.08, 0.16, g[9] * 0.5 + (1 - g[7]) * 0.5);
+    const leafSize = lerp(0.09, 0.2, 1 - g[7]);
+    const makeBranch = (parent, level, len, rad, quat) => {
+      let p = parent;
+      const bendAxis = new THREE.Vector3(rng() - 0.5, 0, rng() - 0.5).normalize();
+      for (let s = 0; s < 2; s++) {
+        const q = s === 0 ? quat : new THREE.Quaternion().setFromAxisAngle(bendAxis, curl * (0.5 + rng() * 0.5));
+        const node = { parent: p, len: len / 2, r: rad * (s === 0 ? 1 : 0.82), q, start: (level + s * 0.5) * levelDur * 0.9, dur: levelDur * 0.6, leaves: [] };
+        if (level >= Math.max(1, depth - 2)) {
+          const nl = rng() < 0.4 + (1 - g[7]) * 0.5 ? 1 + Math.floor(rng() * 2) : 0;
+          for (let k = 0; k < nl; k++) node.leaves.push({ f: 0.3 + rng() * 0.6, yaw: rng() * TAU, tilt: 0.7 + rng() * 0.6, size: leafSize * (0.7 + rng() * 0.6) });
+          this.leafCount += nl;
+        }
+        const idx = this.nodes.length; this.nodes.push(node); p = idx;
+      }
+      if (level < depth) {
+        for (let i = 0; i < kids; i++) {
+          const yaw = i * TAU / kids + level * twist + (rng() - 0.5) * 0.5;
+          const pitch = (i === 0 && kids >= 3) ? spread * 0.2 : spread * (0.8 + rng() * 0.4);
+          makeBranch(p, level + 1, len * decay * (0.85 + rng() * 0.3), rad * 0.66, new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ')));
+        }
+      } else this.tips.push({ node: p, thr: rng(), spin: rng() * TAU });
+    };
+    makeBranch(-1, 0, L0, R0, new THREE.Quaternion().setFromEuler(new THREE.Euler((rng() - .5) * 0.15, 0, (rng() - .5) * 0.15)));
+    this.nodeMats = this.nodes.map(() => new THREE.Matrix4());
+    this.tipMats = this.nodes.map(() => new THREE.Matrix4());
+  }
+  targetGrowth() { return 0.12 + 0.88 * (1 - Math.exp(-this.p.talkSec / CFG.GROWTH_TAU)); }
+  targetBloom() { return 1 - Math.exp(-this.p.laughs / 2.5); }
+  update(dt, t) {
+    const tg = this.targetGrowth(), tb = this.targetBloom();
+    const ng = this.gShow + (tg - this.gShow) * Math.min(1, dt * 1.2), nbm = this.bShow + (tb - this.bShow) * Math.min(1, dt * 1.5);
+    if (Math.abs(ng - this.gShow) > 1e-4 || Math.abs(nbm - this.bShow) > 1e-4 || this.pulse > 0 || this.dirty) { this.gShow = ng; this.bShow = nbm; this.rebuild(); this.dirty = false; }
+    this.pulse = Math.max(0, this.pulse - dt * 0.7);
+    this.petalMat.emissiveIntensity = 0.25 + this.pulse * 1.5;
+    const talking = state.current === this.p && engine.lastFrame?.speaking;
+    this.ring.material.opacity = talking ? 0.6 + 0.4 * Math.sin(t * 12) : 0.5;
+    this.ring.scale.setScalar(talking ? 1.12 : 1);
+    this.body.rotation.z = Math.sin(t * 0.7 + this.phase) * (talking ? 0.04 : 0.018);
+    this.body.rotation.x = Math.sin(t * 0.53 + this.phase * 2) * 0.012;
+    this.label.position.set(0, this.top + 0.28, 0);
+    this.label.visible = mode !== 'mirror';
+    this.base.visible = mode !== 'mirror';
+  }
+  rebuild() {
+    const G = this.gShow, B = this.bShow, bump = 1 + this.pulse * 0.35, thick = 0.35 + 0.65 * G;
+    const nodes = this.nodes, sArr = new Float32Array(nodes.length);
+    let li = 0, top = 0.2;
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i], s = smooth((G - n.start) / n.dur); sArr[i] = s;
+      const M = this.nodeMats[i];
+      if (n.parent < 0) M.makeRotationFromQuaternion(n.q); else M.multiplyMatrices(this.tipMats[n.parent], _m.makeRotationFromQuaternion(n.q));
+      if (s <= 0) { this.segIM.setMatrixAt(i, ZERO); this.tipMats[i].copy(M); }
+      else {
+        const r = n.r * thick * (0.4 + 0.6 * s);
+        this.segIM.setMatrixAt(i, _m2.multiplyMatrices(M, _m.makeScale(r, n.len * s, r)));
+        this.tipMats[i].multiplyMatrices(M, _m.makeTranslation(0, n.len * s, 0));
+      }
+      top = Math.max(top, this.tipMats[i].elements[13]);
+      for (const lf of n.leaves) {
+        const ls = smooth((s - 0.45) / 0.55) * lf.size;
+        if (ls <= 0) { this.leafIM.setMatrixAt(li++, ZERO); continue; }
+        _m2.multiplyMatrices(M, _m.makeTranslation(0, n.len * s * lf.f, 0));
+        _q.setFromEuler(_e.set(lf.tilt, lf.yaw, 0, 'YXZ'));
+        _m.compose(_v.set(0, 0, 0), _q, _s.set(ls, ls, ls));
+        this.leafIM.setMatrixAt(li++, _m2.multiply(_m));
+      }
+    }
+    const nP = this.nPetals;
+    this.tips.forEach((tp, k) => {
+      const o = clamp((B - tp.thr * 0.85) / 0.15, 0, 1) * smooth(sArr[tp.node]);
+      const fs = this.flowerSize * o * bump, T = this.tipMats[tp.node];
+      if (o <= 0) { this.centerIM.setMatrixAt(k, ZERO); for (let j = 0; j < nP; j++) this.petalIM.setMatrixAt(k * nP + j, ZERO); return; }
+      this.centerIM.setMatrixAt(k, _m2.multiplyMatrices(T, _m.makeScale(fs * 0.25, fs * 0.25, fs * 0.25)));
+      const open = lerp(0.25, 1.35, o);
+      for (let j = 0; j < nP; j++) {
+        _q.setFromEuler(_e.set(open, tp.spin + j * TAU / nP, 0, 'YXZ'));
+        _m.compose(_v.set(0, 0, 0), _q, _s.set(fs, fs, fs));
+        this.petalIM.setMatrixAt(k * nP + j, _m2.multiplyMatrices(T, _m));
+      }
+    });
+    for (const im of [this.segIM, this.leafIM, this.centerIM, this.petalIM]) im.instanceMatrix.needsUpdate = true;
+    this.top = top;
+  }
+  drawLabel() {
+    const c = this.labelCanvas.getContext('2d'); c.clearRect(0, 0, 512, 160);
+    c.fillStyle = 'rgba(8,14,30,.72)'; roundRect(c, 16, 20, 480, 120, 30); c.fill();
+    c.fillStyle = this.hex; c.fillRect(40, 118, 432, 4);
+    c.fillStyle = '#fff'; c.font = '600 54px system-ui, sans-serif'; c.textAlign = 'center'; c.fillText(this.p.name.slice(0, 18), 256, 82);
+    c.fillStyle = '#a9bbd8'; c.font = '26px system-ui, sans-serif'; c.fillText(`${fmtDur(this.p.talkSec)} talked · ${this.p.laughs} 🌸`, 256, 112);
+    this.labelTex.needsUpdate = true;
+  }
+  worldTop() { this.group.updateMatrixWorld(); return this.group.localToWorld(new THREE.Vector3(0, this.top, 0)); }
+  dispose() {
+    scene.remove(this.group); const i = hitboxes.indexOf(this.hitbox); if (i >= 0) hitboxes.splice(i, 1);
+    this.group.traverse(o => { if (o.geometry && ![SEG_GEO, CENTER_GEO, PETAL_GEO].includes(o.geometry)) o.geometry.dispose(); if (o.material) o.material.dispose?.(); });
+    this.labelTex.dispose();
+  }
+}
+const plants = new Map();
+function addPlant(p) { const pl = new Plant(p); plants.set(p.id, pl); return pl; }
+function rebuildPlant(p) {
+  const old = plants.get(p.id), np = new Plant(p);
+  if (old) { np.gShow = old.gShow; np.bShow = old.bShow; np.group.position.copy(old.group.position); np.group.scale.copy(old.group.scale); np.group.rotation.copy(old.group.rotation); np.group.visible = old.group.visible; old.dispose(); }
+  plants.set(p.id, np);
+}
+const rebuildQueue = new Set();
+
+/* =====================================================================
+   FLOATING WORDS (loudness → size, pitch → height, speaker → colour)
+   ===================================================================== */
+const floatWords = [];
+function spawnWord(plant, word, loud, pitch) {
+  if (!plant.group.visible) return;
+  const c = document.createElement('canvas'), g = c.getContext('2d'); g.font = '600 72px system-ui, sans-serif';
+  const w = Math.ceil(g.measureText(word).width) + 30; c.width = w; c.height = 100;
+  g.font = '600 72px system-ui, sans-serif'; g.textBaseline = 'middle'; g.shadowColor = plant.hex; g.shadowBlur = 18;
+  g.fillStyle = '#' + plant.flowerColor.clone().offsetHSL(0, 0, 0.15).getHexString(); g.fillText(word, 15, 52);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
+  const k = plant.group.scale.x;
+  const h = lerp(0.07, 0.2, clamp(loud / 0.12, 0, 1)) * Math.max(k, 0.25); sp.scale.set(h * w / 100, h, 1);
+  const top = plant.worldTop(), pitchLift = pitch ? clamp(Math.log2(pitch / 100) * 0.5, 0, 1) : 0.3;
+  sp.position.set(top.x + (Math.random() - .5) * 0.6 * k, top.y + pitchLift * 0.6 * k, top.z + (Math.random() - .5) * 0.6 * k);
+  scene.add(sp);
+  floatWords.push({ sp, life: 8, v: new THREE.Vector3((Math.random() - .5) * 0.1, 0.12 + Math.random() * 0.08, (Math.random() - .5) * 0.1).multiplyScalar(Math.max(k, 0.25)) });
+  while (floatWords.length > CFG.MAX_WORDS) killWord(0);
+}
+function killWord(i) { const w = floatWords[i]; scene.remove(w.sp); w.sp.material.map.dispose(); w.sp.material.dispose(); floatWords.splice(i, 1); }
+function updateWords(dt) { for (let i = floatWords.length - 1; i >= 0; i--) { const w = floatWords[i]; w.life -= dt; if (w.life <= 0) { killWord(i); continue; } w.sp.position.addScaledVector(w.v, dt); w.sp.material.opacity = Math.min(1, w.life / 2); } }
+
+/* =====================================================================
+   IN-WORLD INFO PANEL (garden / VR / headset AR)
+   ===================================================================== */
+const panelCanvas = document.createElement('canvas'); panelCanvas.width = 1024; panelCanvas.height = 1400;
+const panelTex = new THREE.CanvasTexture(panelCanvas); panelTex.colorSpace = THREE.SRGBColorSpace;
+const panel = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1400 / 1024), new THREE.MeshBasicMaterial({ map: panelTex, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+panel.visible = false; panel.renderOrder = 10; scene.add(panel);
+function wrap(c, text, x, y, maxW, lh, maxLines = 99) {
+  const words = String(text).split(/\s+/); let line = '', n = 0;
+  for (const w of words) { const test = line ? line + ' ' + w : w; if (c.measureText(test).width > maxW && line) { c.fillText(line, x, y); y += lh; line = w; if (++n >= maxLines) return y; } else line = test; }
+  if (line) { c.fillText(line, x, y); y += lh; } return y;
+}
+function drawPanel(p) {
+  const pl = plants.get(p.id); if (!pl) return;
+  const c = panelCanvas.getContext('2d'), W = 1024, H = 1400, hex = pl.hex;
+  c.clearRect(0, 0, W, H);
+  c.fillStyle = 'rgba(8,13,28,.9)'; roundRect(c, 8, 8, W - 16, H - 16, 40); c.fill(); c.strokeStyle = hex; c.lineWidth = 4; c.stroke();
+  c.fillStyle = hex; c.fillRect(60, 60, 12, 110);
+  c.fillStyle = '#fff'; c.font = '700 72px system-ui, sans-serif'; c.fillText(p.name.slice(0, 22), 96, 128);
+  c.fillStyle = '#9fb0cc'; c.font = '30px system-ui, sans-serif';
+  c.fillText(`Met ${new Date(p.createdAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · heard ${ago(p.lastHeard)}${p.demo ? ' · demo' : ''}`, 96, 170);
+  [['Talked', fmtDur(p.talkSec)], ['Laughs', p.laughs], ['Words', p.words]].forEach(([k, v], i) => { const x = 60 + i * 310; c.fillStyle = 'rgba(255,255,255,.05)'; roundRect(c, x, 210, 290, 110, 20); c.fill(); c.fillStyle = '#fff'; c.font = '700 46px system-ui'; c.fillText(String(v), x + 24, 270); c.fillStyle = '#9fb0cc'; c.font = '26px system-ui'; c.fillText(k, x + 24, 305); });
+  let y = 380;
+  const section = t => { c.fillStyle = hex; c.font = '700 30px system-ui'; c.fillText(t.toUpperCase(), 60, y); y += 46; c.fillStyle = '#e8f0ff'; c.font = '34px system-ui'; };
+  section('Voice'); y = wrap(c, describeVoice(p.traits), 60, y, 900, 44, 2) + 14;
+  const factKeys = Object.keys(p.facts).filter(k => k !== 'name' && p.facts[k].length);
+  section('What I learned');
+  if (!factKeys.length) { c.fillStyle = '#7d8eab'; y = wrap(c, 'Nothing yet — ask where they’re from or what they’re building.', 60, y, 900, 44, 2); }
+  for (const k of factKeys.slice(0, 7)) { c.fillStyle = '#9fb0cc'; c.font = '600 32px system-ui'; c.fillText(k, 60, y); c.fillStyle = '#e8f0ff'; c.font = '34px system-ui'; y = wrap(c, p.facts[k].join(' · '), 260, y, 700, 42, 2); }
+  y += 14;
+  const kws = topKeywords(p);
+  if (kws.length) { section('Talked about'); y = wrap(c, kws.join(' · '), 60, y, 900, 44, 2) + 14; }
+  if (p.notes) { section('Your notes'); y = wrap(c, p.notes, 60, y, 900, 44, 3) + 14; }
+  if (p.quotes.length && y < 1050) { section('Recent words'); c.font = 'italic 32px system-ui'; c.fillStyle = '#cfe0ff'; for (const q of p.quotes.slice(-3).reverse()) { if (y > 1110) break; y = wrap(c, `“${q.text}”`, 60, y, 900, 40, 2) + 6; } }
+  const gy = 1180; c.fillStyle = hex; c.font = '700 26px system-ui'; c.fillText('VOICE GENOME', 60, gy);
+  p.genome.forEach((v, i) => { const x = 60 + i * 90, bh = 120; c.fillStyle = 'rgba(255,255,255,.08)'; c.fillRect(x, gy + 20, 60, bh); c.fillStyle = `hsl(${(pl.hue * 360 + i * 12) % 360},70%,60%)`; c.fillRect(x, gy + 20 + bh * (1 - v), 60, bh * v); c.fillStyle = '#9fb0cc'; c.font = '17px system-ui'; c.fillText(GENE_NAMES[i].slice(0, 8), x, gy + 165); });
+  panelTex.needsUpdate = true;
+}
+const topKeywords = p => Object.entries(p.kw).sort((a, b) => b[1] - a[1]).slice(0, 8).map(e => e[0]);
+function placePanel() {
+  if (!state.selected) return;
+  const pl = plants.get(state.selected.id); if (!pl) return;
+  const k = xrMode === 'immersive-ar' ? 0.45 : 1;
+  const cam = camera.getWorldPosition(new THREE.Vector3()), base = pl.group.position.clone();
+  const toCam = cam.clone().sub(base).setY(0).normalize();
+  const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), toCam).normalize();
+  panel.scale.setScalar(k);
+  panel.position.copy(base).addScaledVector(right, 0.85 * k).addScaledVector(toCam, 0.35 * k).setY(Math.max(base.y + 1.0 * k, cam.y - 0.15));
+  panel.lookAt(cam.x, panel.position.y, cam.z);
+}
+function select(plant) {
+  state.selected = plant ? plant.p : null;
+  panel.visible = !!plant && mode !== 'mirror';
+  if (plant) { drawPanel(plant.p); placePanel(); }
+  renderEditor();
+}
+
+/* =====================================================================
+   WRIST PANEL + ENROLL MARKER + AR RETICLE
+   ===================================================================== */
+const wristCanvas = document.createElement('canvas'); wristCanvas.width = 640; wristCanvas.height = 300;
+const wristTex = new THREE.CanvasTexture(wristCanvas); wristTex.colorSpace = THREE.SRGBColorSpace;
+const wrist = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.103), new THREE.MeshBasicMaterial({ map: wristTex, transparent: true, depthWrite: false, fog: false }));
+wrist.position.set(0, 0.06, -0.06); wrist.rotation.x = -0.9;
+let lastLine = '';
+function drawWrist() {
+  const c = wristCanvas.getContext('2d'); c.clearRect(0, 0, 640, 300);
+  c.fillStyle = 'rgba(8,13,28,.88)'; roundRect(c, 4, 4, 632, 292, 26); c.fill();
+  c.fillStyle = '#9dffb8'; c.font = '600 34px system-ui'; c.fillText(engine.running ? '🎤 listening' : '🎤 mic off — start on laptop', 24, 50);
+  c.fillStyle = '#fff'; c.font = '600 40px system-ui';
+  c.fillText(state.enrolling ? `Planting… ${Math.round(state.enrolling.progress * 100)}%` : (state.current ? `🗣 ${state.current.name}` : 'No one talking'), 24, 104);
+  c.fillStyle = '#3fa66a'; c.fillRect(24, 122, 590 * clamp(state.loud / 0.1, 0, 1), 10);
+  c.fillStyle = '#cfe0ff'; c.font = 'italic 28px system-ui'; wrap(c, lastLine || '…', 24, 172, 590, 34, 2);
+  c.fillStyle = '#8899b8'; c.font = '22px system-ui'; c.fillText(xrMode === 'immersive-ar' ? 'trigger: select / move · L-trigger: new voice · grip: bloom' : 'L-trigger: new voice · R-trigger: examine · grip: bloom', 24, 275);
+  wristTex.needsUpdate = true;
+}
+const enrollMarker = new THREE.Group(); enrollMarker.visible = false; scene.add(enrollMarker);
+const seedMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.08, 2), new THREE.MeshStandardMaterial({ color: 0x9dffb8, emissive: 0x3fa66a, emissiveIntensity: 1.2 }));
+seedMesh.position.y = 0.15; enrollMarker.add(seedMesh);
+const enrollRing = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.36, 64, 1, 0, 0.001), new THREE.MeshBasicMaterial({ color: 0xffd27a, side: THREE.DoubleSide }));
+enrollRing.rotation.x = -Math.PI / 2; enrollRing.position.y = 0.02; enrollMarker.add(enrollRing);
+const reticle = new THREE.Mesh(new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x9dffb8 }));
+reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+let hitTestSource = null, xrFloorY = 0;
+const arDefault = slot => slotPos(slot).multiplyScalar(CFG.AR_SCALE).add(new THREE.Vector3(0, xrFloorY, -1.3));
+
+/* =====================================================================
+   SPEECH RECOGNITION (Web Speech API — Chrome / Edge)
+   ===================================================================== */
+const transcriber = {
+  want: false,
+  start() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { toast('Speech-to-text needs Chrome or Edge. Plants still grow from voice alone.', 5000); return; }
+    this.want = true;
+    const r = new SR(); r.continuous = true; r.interimResults = true; r.lang = navigator.language || 'en-US';
+    r.onresult = e => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) { const res = e.results[i], txt = res[0].transcript.trim(); if (res.isFinal) onFinalTranscript(txt); else interim += txt + ' '; }
+      $('interim').textContent = interim ? `“${interim.trim()}”` : '';
+    };
+    r.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { this.want = false; toast('Speech recognition blocked — allow mic / use localhost or https.'); } };
+    r.onend = () => { if (this.want) setTimeout(() => { try { r.start(); } catch (_) { } }, 250); };
+    try { r.start(); } catch (_) { }
+  },
+};
+function attributedSpeaker() {
+  if (state.pinnedId) return profileById(state.pinnedId) || null;
+  const vs = visionSpeaker(); if (vs) return vs;
+  if (state.current) return state.current;
+  if (state.lastSpeaker && performance.now() - state.lastSpeakerAt < CFG.SPEAKER_MEMORY_MS) return state.lastSpeaker;
+  return null;
+}
+function onFinalTranscript(txt) {
+  if (!txt) return;
+  lastLine = txt;
+  if (state.enrolling) { state.enrolling.transcripts.push(txt); logLine('New voice', txt); return; }
+  const p = attributedSpeaker();
+  if (!p) { logLine('Unknown', txt); return; }
+  addUtterance(p, txt);
+}
+function addFact(p, key, val) {
+  const arr = p.facts[key] || (p.facts[key] = []);
+  if (!arr.some(v => v.toLowerCase() === val.toLowerCase())) { arr.unshift(val); if (arr.length > 3) arr.pop(); }
+}
+function addUtterance(p, txt) {
+  const words = txt.split(/\s+/).filter(Boolean);
+  p.words += words.length; p.lastHeard = Date.now();
+  p.quotes.push({ t: Date.now(), text: txt }); if (p.quotes.length > 12) p.quotes.shift();
+  for (const w of words) { const k = w.toLowerCase().replace(/[^a-z0-9'-]/g, ''); if (k.length >= 4 && !STOP.has(k)) p.kw[k] = (p.kw[k] || 0) + 1; }
+  for (const [key, val] of extractFacts(txt)) {
+    if (key === 'name') { if (p.autoName) { p.name = val; p.autoName = false; toast(`🌱 Nice to meet you, ${val}!`); } }
+    addFact(p, key, val);
+  }
+  if (LAUGH_WORDS.test(txt)) triggerBloom(p, 'transcript');
+  const pl = plants.get(p.id);
+  if (pl) { pl.drawLabel(); words.slice(-14).forEach((w, i) => setTimeout(() => spawnWord(pl, w, state.loud, engine.lastFrame?.pitch), i * 110)); }
+  logLine(p.name, txt);
+  if (state.selected === p) { drawPanel(p); renderEditor(true); }
+  refreshPinSelect(); save();
+}
+function logLine(who, txt) {
+  const d = document.createElement('div'); d.innerHTML = '<b></b> '; d.querySelector('b').textContent = who + ':'; d.append(txt);
+  const log = $('log'); log.prepend(d); while (log.children.length > 6) log.lastChild.remove();
+}
+
+/* =====================================================================
+   FACE TRACKING (AR mirror) — MediaPipe Face Landmarker
+   ===================================================================== */
+const SIG_PAIRS = [[133, 362], [98, 327], [234, 454], [10, 168], [168, 1], [1, 0], [61, 291], [172, 397], [105, 334], [70, 300], [10, 152], [168, 152], [58, 288], [6, 1]];
+const SIG_SYM = [[[33, 133], [263, 362]], [[1, 234], [1, 454]], [[105, 33], [334, 263]], [[61, 152], [291, 152]], [[98, 61], [327, 291]], [[234, 152], [454, 152]]];
+function faceSig(lm, vw, vh) {
+  const D = (a, b) => Math.hypot((lm[a].x - lm[b].x) * vw, (lm[a].y - lm[b].y) * vh, (lm[a].z - lm[b].z) * vw);
+  const io = D(33, 263) || 1;
+  return [...SIG_PAIRS.map(([a, b]) => D(a, b) / io), ...SIG_SYM.map(([[a, b], [c, d]]) => (D(a, b) + D(c, d)) / (2 * io))];
+}
+const faceDist = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += ((a[i] - b[i]) / (b[i] || 1)) ** 2; return Math.sqrt(s / a.length); };
+const video = $('cam');
+function vidToScreen(x, y) { // normalized video coords → normalized screen coords (object-fit: cover)
+  const va = (video.videoWidth || 16) / (video.videoHeight || 9), sa = innerWidth / innerHeight;
+  return sa > va ? [x, (y - 0.5) * (sa / va) + 0.5] : [(x - 0.5) * (va / sa) + 0.5, y];
+}
+const screenScaleX = () => { const va = (video.videoWidth || 16) / (video.videoHeight || 9), sa = innerWidth / innerHeight; return sa > va ? 1 : va / sa; };
+const screenScaleY = () => { const va = (video.videoWidth || 16) / (video.videoHeight || 9), sa = innerWidth / innerHeight; return sa > va ? sa / va : 1; };
+function screenToWorld(sx, sy, d) { const tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2); return new THREE.Vector3((sx * 2 - 1) * d * tanH * camera.aspect, (1 - sy * 2) * d * tanH, -d); }
+
+class FaceTrack {
+  constructor(id) {
+    this.id = id; this.profileId = null; this.sig = null; this.sigN = 0; this.jaw = []; this.talkScore = 0; this.enrollTalk = 0;
+    this.smileT = 0; this.laughCool = 0; this.lastIdent = 0; this.matchInfo = ''; this.roll = 0; this.init = false; this.cardKey = '';
+    this.card = document.createElement('div'); this.card.className = 'fcard'; $('cards').appendChild(this.card);
+    this.card.addEventListener('click', e => {
+      if (e.target.closest('select')) return;
+      if (e.target.closest('.pv')) { startEnrollment(null, this); return; }
+      if (e.target.closest('.nt')) { const p = addManualTree(); faceTracker.link(this, p, 'new tree'); select(plants.get(p.id)); return; }
+      if (this.profileId) select(state.selected?.id === this.profileId ? null : plants.get(this.profileId));
+    });
+    this.card.addEventListener('change', e => { if (e.target.classList.contains('lk') && e.target.value) faceTracker.link(this, profileById(e.target.value), 'linked by you'); });
+  }
+  ingest(d, vw, vh, now) {
+    const a = this.init ? 0.5 : 1; this.init = true;
+    for (const k of ['cx', 'cy', 'w', 'h', 'top', 'bottom']) this[k] = this[k] === undefined ? d[k] : lerp(this[k], d[k], a);
+    this.lastSeen = now; const bs = d.bs;
+    this.jaw.push(bs.jawOpen || 0); if (this.jaw.length > 15) this.jaw.shift();
+    this.mouthVar = std(this.jaw);
+    const speaking = !!engine.lastFrame?.speaking && now - (engine.lastFrame?.t || 0) < 300;
+    this.talkScore = lerp(this.talkScore, speaking && this.mouthVar > CFG.MOUTH_VAR ? 1 : 0, 0.2);
+    // head roll from the eye line (in displayed / mirrored coordinates)
+    const X = x => faceTracker.mirror ? 1 - x : x, L = d.lm[263], R = d.lm[33];
+    const ax = X(L.x) * vw, ay = L.y * vh, bx = X(R.x) * vw, by = R.y * vh;
+    const [p1, p2] = ax < bx ? [[ax, ay], [bx, by]] : [[bx, by], [ax, ay]];
+    this.roll = lerp(this.roll, -Math.atan2(p2[1] - p1[1], p2[0] - p1[0]), 0.4);
+    // identity signature: only from frontal, closed-mouth frames
+    const lm = d.lm, eyeMid = (lm[33].x + lm[263].x) / 2, yaw = Math.abs(lm[1].x - eyeMid) / (Math.abs(lm[263].x - lm[33].x) || 1);
+    if (yaw < 0.12 && (bs.jawOpen || 0) < 0.15) {
+      const s = faceSig(lm, vw, vh);
+      if (!this.sig) this.sig = s.slice(); else { const w = 1 / Math.min(this.sigN + 1, 40); this.sig = this.sig.map((v, i) => v + (s[i] - v) * w); }
+      this.sigN++;
+      const p = this.profileId && profileById(this.profileId);
+      if (p) { if (!p.faceSig) p.faceSig = s.slice(); else p.faceSig = p.faceSig.map((v, i) => v + (s[i] - v) * 0.01); p.faceN = Math.min(500, (p.faceN || 0) + 1); save(); }
+    }
+    // smile + open mouth + sound → laughter
+    const smile = ((bs.mouthSmileLeft || 0) + (bs.mouthSmileRight || 0)) / 2;
+    this.smileT = smile > 0.5 && (bs.jawOpen || 0) > 0.2 && speaking ? this.smileT + 1 : Math.max(0, this.smileT - 0.5);
+    if (this.laughCool > 0) this.laughCool--;
+    if (this.smileT > 10 && this.laughCool <= 0) { this.smileT = 0; this.laughCool = 90; const p = profileById(this.profileId); if (p) triggerBloom(p, 'laugh'); }
+    // identify unlinked faces by geometry
+    if (!this.profileId && this.sigN >= 10 && now - this.lastIdent > 500) {
+      this.lastIdent = now;
+      const cands = state.profiles.filter(p => p.faceSig && p.faceSig.length === this.sig.length && !faceTracker.trackFor(p.id)).map(p => ({ p, d: faceDist(this.sig, p.faceSig) })).sort((x, y) => x.d - y.d);
+      this.matchInfo = cands[0] ? `closest face: ${cands[0].p.name} (${cands[0].d.toFixed(3)})` : '';
+      if (cands[0] && cands[0].d < CFG.FACE_THRESHOLD) faceTracker.link(this, cands[0].p, 'face');
+    }
+  }
+  remove() { this.card.remove(); }
+}
+
+const faceTracker = {
+  lm: null, loading: false, stream: null, tracks: [], nextId: 1, lastVideoTime: -1, status: 'off', mirror: true,
+  async start(deviceId) {
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    const constraints = { video: deviceId ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } : { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = this.stream; await video.play();
+    this.populateCameras();
+    if (!this.lm && !this.loading) this.loadModel();
+  },
+  async loadModel() {
+    this.loading = true; this.status = 'loading face model…';
+    try {
+      const vision = await import(`${MEDIAPIPE}/vision_bundle.mjs`);
+      const fileset = await vision.FilesetResolver.forVisionTasks(`${MEDIAPIPE}/wasm`);
+      const opts = delegate => ({ baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: 'VIDEO', numFaces: 4, outputFaceBlendshapes: true, minFaceDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+      try { this.lm = await vision.FaceLandmarker.createFromOptions(fileset, opts('GPU')); }
+      catch (e) { console.warn('GPU delegate failed, falling back to CPU', e); this.lm = await vision.FaceLandmarker.createFromOptions(fileset, opts('CPU')); }
+      this.status = 'tracking faces';
+    } catch (e) { console.error(e); this.status = 'face model failed to load'; toast('Face tracking failed to load (needs internet): ' + e.message, 6000); }
+    this.loading = false;
+  },
+  async populateCameras() {
+    try {
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+      const cur = this.stream?.getVideoTracks()[0]?.getSettings().deviceId;
+      $('camSelect').innerHTML = devs.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === cur ? 'selected' : ''}>${esc(d.label || 'Camera ' + (i + 1))}</option>`).join('');
+    } catch (_) { }
+  },
+  stop() { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); this.stream = null; video.srcObject = null; for (const t of this.tracks) t.remove(); this.tracks = []; },
+  trackFor(pid) { return this.tracks.find(t => t.profileId === pid); },
+  talkingTrack() { let best = null; for (const t of this.tracks) if (t.seenNow && t.talkScore > 0.45 && (!best || t.talkScore > best.talkScore)) best = t; return best; },
+  link(t, p, why) {
+    if (!t || !p) return;
+    for (const o of this.tracks) if (o !== t && o.profileId === p.id) o.profileId = null;
+    const was = t.profileId; t.profileId = p.id; t.cardKey = '';
+    if (t.sig && t.sigN > 0) {
+      if (p.faceSig && p.faceSig.length === t.sig.length) { const w = Math.min(0.5, t.sigN / (t.sigN + (p.faceN || 10))); p.faceSig = p.faceSig.map((v, i) => v + (t.sig[i] - v) * w); }
+      else p.faceSig = t.sig.slice();
+      p.faceN = Math.min(500, (p.faceN || 0) + t.sigN);
+    }
+    save(); if (was !== p.id) toast(`👤 ${p.name} (${why})`);
+  },
+  update() {
+    if (!this.lm || video.readyState < 2) return;
+    if (video.currentTime === this.lastVideoTime) return;
+    this.lastVideoTime = video.currentTime;
+    let res; try { res = this.lm.detectForVideo(video, performance.now()); } catch (e) { return; }
+    const vw = video.videoWidth, vh = video.videoHeight, now = performance.now(), X = x => this.mirror ? 1 - x : x;
+    const dets = (res.faceLandmarks || []).map((lm, i) => {
+      let minx = 1, maxx = 0, miny = 1, maxy = 0;
+      for (const p of lm) { const x = X(p.x); if (x < minx) minx = x; if (x > maxx) maxx = x; if (p.y < miny) miny = p.y; if (p.y > maxy) maxy = p.y; }
+      const bs = {}; for (const c of (res.faceBlendshapes?.[i]?.categories || [])) bs[c.categoryName] = c.score;
+      return { lm, cx: (minx + maxx) / 2, cy: (miny + maxy) / 2, w: maxx - minx, h: maxy - miny, top: miny, bottom: maxy, bs };
+    });
+    const used = new Set();
+    for (const d of dets) {
+      let best = null, bd = 1e9;
+      for (const t of this.tracks) { if (used.has(t)) continue; const dd = Math.hypot(t.cx - d.cx, t.cy - d.cy); if (dd < bd && dd < Math.max(0.08, d.w * 0.8)) { bd = dd; best = t; } }
+      if (!best) { best = new FaceTrack(this.nextId++); this.tracks.push(best); }
+      used.add(best); best.ingest(d, vw, vh, now);
+    }
+    for (let i = this.tracks.length - 1; i >= 0; i--) { const t = this.tracks[i]; t.seenNow = used.has(t); if (now - t.lastSeen > 1200) { t.remove(); this.tracks.splice(i, 1); } }
+  },
+  // anchor plants + cards to faces
+  layout() {
+    const shown = new Set(), sx = screenScaleX(), sy = screenScaleY();
+    for (const t of this.tracks) {
+      const p = t.profileId && profileById(t.profileId), pl = p && plants.get(p.id);
+      const [cx, cy] = vidToScreen(t.cx, t.cy), [, top] = vidToScreen(t.cx, t.top), [, bot] = vidToScreen(t.cx, t.bottom);
+      const fw = t.w * sx, fh = t.h * sy;
+      const tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+      const d = clamp(CFG.FACE_WIDTH_M / (2 * Math.max(fw, 0.02) * tanH * camera.aspect), 0.2, 6);
+      const faceH = fh * 2 * d * tanH;
+      let cardX, cardY;
+      if (pl) {
+        shown.add(pl);
+        const side = p.arSide || 'auto';
+        const dir = side === 'left' ? -1 : side === 'right' ? 1 : (cx > 0.5 ? -1 : 1);
+        let target, scale, roll = 0;
+        if (side === 'crown') { target = screenToWorld(cx, top, d); target.y += faceH * 0.02; scale = faceH * 0.6; roll = t.roll; }
+        else { target = screenToWorld(cx + dir * fw * 1.35, bot + fh * 0.6, d); scale = faceH * 1.2; }
+        if (!pl.arInit || !pl.group.visible) { pl.group.position.copy(target); pl.group.scale.setScalar(scale); pl.arInit = true; }
+        pl.group.position.lerp(target, 0.35); pl.group.scale.setScalar(lerp(pl.group.scale.x, scale, 0.35));
+        pl.group.rotation.set(0, 0, lerp(pl.group.rotation.z, roll, 0.35));
+        pl.group.visible = true;
+        const cw = t.card.offsetWidth || 180, ch = t.card.offsetHeight || 90;
+        if (side === 'crown') { cardX = (cx + dir * fw * 0.6) * innerWidth + dir * cw / 2; cardY = cy * innerHeight + ch / 2; }
+        else {   // card hangs on the outer side of the tree, level with its canopy
+          const k = pl.group.scale.x, anchor = pl.group.position.clone().add(new THREE.Vector3(dir * 0.55 * k, pl.top * 0.6 * k, 0)).project(camera);
+          cardX = (anchor.x + 1) / 2 * innerWidth + dir * (cw / 2 + 6); cardY = (1 - anchor.y) / 2 * innerHeight + ch / 2;
+        }
+      } else { cardX = cx * innerWidth; cardY = (top - fh * 0.12) * innerHeight - 10; }
+      const ch = t.card.offsetHeight || 90, cw = t.card.offsetWidth || 180;
+      t.card.style.left = clamp(cardX, cw / 2 + 8, innerWidth - cw / 2 - 8) + 'px';
+      t.card.style.top = clamp(cardY, ch + 8, innerHeight - 8) + 'px';
+      t.card.style.opacity = t.seenNow ? 1 : 0.4;
+      t.card.classList.toggle('talking', t.talkScore > 0.45);
+      t.card.classList.toggle('sel', !!p && state.selected === p);
+    }
+    for (const pl of plants.values()) if (!shown.has(pl)) { pl.group.visible = false; pl.arInit = false; }
+  },
+  renderCards() {
+    for (const t of this.tracks) {
+      const p = t.profileId && profileById(t.profileId);
+      if (p) {
+        const pl = plants.get(p.id), f = p.facts;
+        const bits = [f.from && `📍 ${f.from[0]}`, f.building && `🛠 ${f.building[0]}`, f.studies && `🎓 ${f.studies[0]}`, f.role && `💼 ${f.role[0]}`, f['works at'] && `🏢 ${f['works at'][0]}`, f.likes && `❤️ ${f.likes[0]}`, f.other && `• ${f.other[0]}`].filter(Boolean).slice(0, 3);
+        const last = p.quotes[p.quotes.length - 1];
+        const html = `<div class="nm">${esc(p.name)} <span class="tk">🗣</span></div>
+          <div class="facts">${bits.map(esc).join('<br>') || '<i class="k">nothing learned yet — say hi!</i>'}</div>
+          ${p.notes ? `<div class="facts">📝 ${esc(p.notes)}</div>` : ''}
+          <div class="mini">${fmtDur(p.talkSec)} talked · ${p.laughs} 🌸 · met ${ago(p.createdAt)}</div>
+          <div class="more">${topKeywords(p).length ? `<b>Talked about:</b> ${esc(topKeywords(p).slice(0, 6).join(', '))}<br>` : ''}${last ? `<i>“${esc(last.text)}”</i><br>` : ''}${esc(describeVoice(p.traits))}<br><span class="k">click to close · edit in panel →</span></div>`;
+        t.card.style.setProperty('--c', pl ? pl.hex : '#9dffb8');
+        if (t.cardKey !== html) { t.card.innerHTML = html; t.cardKey = html; }
+      } else {
+        const key = 'U' + state.profiles.map(p => p.id + p.name).join('|');
+        t.card.style.setProperty('--c', '#9fb0cc');
+        if (t.cardKey !== key) {
+          t.card.innerHTML = `<div class="nm">👤 New face</div><div class="mini um"></div>
+            <select class="lk"><option value="">Link to an existing tree…</option>${state.profiles.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+            <div class="row"><button class="pv">🌱 Plant their voice</button><button class="nt">➕ Tree</button></div>`;
+          t.cardKey = key;
+        }
+        const um = t.card.querySelector('.um'); if (um) um.textContent = t.matchInfo || 'Say hi — talking links their voice to their face.';
+      }
+    }
+  },
+};
+function visionSpeaker() { if (mode !== 'mirror') return null; const t = faceTracker.talkingTrack(); return t?.profileId ? profileById(t.profileId) || null : null; }
+
+/* =====================================================================
+   CORE AUDIO LOOP
+   ===================================================================== */
+const engine = new VoiceEngine();
+const laugh = new LaughDetector();
+let frameCount = 0;
+engine.listeners.push(f => {
+  frameCount++;
+  state.loud = state.loud * 0.8 + f.rms * 0.2;
+  if (f.voiced) { const v = idVec(f); state.norm.push(v); state.idWindow.push(v); if (state.idWindow.length > CFG.ID_WINDOW) state.idWindow.shift(); state.lastVoicedAt = f.t; }
+  if (f.t - state.lastVoicedAt > 1200) { if (state.current) { state.lastSpeaker = state.current; state.lastSpeakerAt = f.t; } state.current = null; state.idWindow.length = 0; }
+  if (state.enrolling) {
+    const en = state.enrolling; en.push(f);
+    if (f.speaking && mode === 'mirror') { const tt = faceTracker.talkingTrack(); if (tt) tt.enrollTalk++; }
+    if (en.progress >= 1 && en.voiced >= 25) finishEnrollment();
+    else if (en.elapsed > CFG.ENROLL_TIMEOUT) { cancelEnrollment(); toast('Didn’t hear enough voice — try again closer to the mic.'); }
+    return;
+  }
+  if (f.t - state.lastIdAt > 200) { state.lastIdAt = f.t; identify(); }
+  const sp = attributedSpeaker();
+  if (sp && f.speaking) { sp.talkSec += f.dt; sp.lastHeard = Date.now(); }
+  if (laugh.push(f, sp?.traits?.pitchHz)) { const who = sp || state.lastSpeaker; if (who) triggerBloom(who, 'laugh'); }
+  if (frameCount % 200 === 0) save();
+});
+function identify() {
+  if (state.pinnedId) { state.current = profileById(state.pinnedId) || null; state.idInfo = 'pinned'; return; }
+  let voiceP = null; const W = state.idWindow;
+  if (W.length >= 12) {
+    const m = new Array(13).fill(0); for (const v of W) for (let i = 0; i < 13; i++) m[i] += v[i] / W.length;
+    const cands = state.profiles.filter(p => !p.demo && p.idMean).map(p => {
+      let s = 0, ws = 0; for (let i = 0; i < 13; i++) { const z = (m[i] - p.idMean[i]) / state.norm.sd(i); s += ID_W[i] * z * z; ws += ID_W[i]; }
+      return { p, d: Math.sqrt(s / ws) };
+    }).sort((a, b) => a.d - b.d);
+    state.idInfo = cands.slice(0, 3).map(c => `${c.p.name} ${c.d.toFixed(2)}`).join(' · ') || 'no voices planted yet';
+    const best = cands[0];
+    if (best && best.d < CFG.ID_THRESHOLD) {
+      voiceP = best.p;
+      if (best.d < CFG.ID_THRESHOLD * 0.6) for (let i = 0; i < 13; i++) best.p.idMean[i] += (m[i] - best.p.idMean[i]) * 0.01;
+    }
+  }
+  // voice ⇄ face: a talking, unlinked face + a recognised voice → link them
+  if (mode === 'mirror' && voiceP) { const tt = faceTracker.talkingTrack(); if (tt && !tt.profileId && !faceTracker.trackFor(voiceP.id)) faceTracker.link(tt, voiceP, 'recognised by voice'); }
+  const who = visionSpeaker() || voiceP;
+  if (who) { state.current = who; state.lastSpeaker = who; state.lastSpeakerAt = performance.now(); }
+  else if (W.length >= 12) state.current = null;
+}
+function triggerBloom(p, why) {
+  p.laughs++; const pl = plants.get(p.id); if (!pl) return;
+  pl.pulse = 1; if (pl.group.visible) bursts.emit(pl.worldTop(), pl.flowerColor, 110, Math.max(pl.group.scale.x, 0.25)); pl.drawLabel();
+  toast(`🌸 ${p.name} ${why === 'laugh' ? 'laughed' : why === 'manual' ? 'is blooming' : 'is laughing'} — bloom!`);
+  if (state.selected === p) { drawPanel(p); renderEditor(true); }
+  save();
+}
+
+/* ---------- enrollment (new voice, or re-record an existing tree) ---------- */
+function startEnrollment(target = null, track = null) {
+  if (!engine.running) { toast('Start listening first (🎤 button).'); return; }
+  if (state.enrolling) return;
+  for (const t of faceTracker.tracks) t.enrollTalk = 0;
+  state.enrolling = new Enrollment(target ? target.name : $('enrollName').value.trim(), target, track);
+  $('enroll').classList.remove('hidden');
+  $('enroll').querySelector('h2').textContent = target ? `🎙️ Re-recording ${target.name}'s voice…` : '🎙️ Listening to a new voice…';
+  if (!target) {
+    enrollMarker.position.copy(xrMode === 'immersive-ar' ? arDefault(nextSlot()) : slotPos(nextSlot()));
+    enrollMarker.scale.setScalar(xrMode === 'immersive-ar' ? CFG.AR_SCALE : 1);
+    enrollMarker.visible = mode !== 'mirror';
+  }
+}
+function cancelEnrollment() { state.enrolling = null; $('enroll').classList.add('hidden'); enrollMarker.visible = false; }
+function finishEnrollment() {
+  const en = state.enrolling, r = en.finish();
+  cancelEnrollment();
+  let p;
+  if (en.target) {
+    p = en.target; Object.assign(p, { idMean: r.idMean, traits: r.traits, u: r.u });
+    if (!p.genomeEdited) { p.genome = genomeFromU(r.u); p.seed = seedFromU(r.u); rebuildPlant(p); }
+    toast(`🎙 ${p.name}'s voice updated — ${describeVoice(p.traits)}`, 4000);
+  } else {
+    p = newProfile({ name: en.name, ...r });
+    state.profiles.push(p); const pl = addPlant(p);
+    $('enrollName').value = '';
+    if (mode !== 'mirror') bursts.emit(pl.group.position.clone().setY(pl.group.position.y + 0.3), pl.flowerColor, 80);
+    toast(`🌱 ${p.name}'s voice planted — ${describeVoice(p.traits)}`, 4000);
+  }
+  // in AR mirror: attach to the face that was talking (or the only face in view)
+  if (mode === 'mirror') {
+    const seen = faceTracker.tracks.filter(t => t.seenNow);
+    let t = en.track && faceTracker.tracks.includes(en.track) ? en.track : null;
+    if (!t) t = [...seen].sort((a, b) => b.enrollTalk - a.enrollTalk)[0];
+    if (t && (t.enrollTalk > 5 || seen.length === 1 || en.track)) faceTracker.link(t, p, 'voice planted');
+  }
+  for (const tx of en.transcripts) addUtterance(p, tx);
+  state.current = p; state.lastSpeaker = p; state.lastSpeakerAt = performance.now();
+  refreshPinSelect(); save();
+  if (state.selected === p) renderEditor();
+}
+
+/* ---------- manual trees + demo voices ---------- */
+function randomU() { return Array.from({ length: 14 }, () => clamp(gauss(Math.random) * 0.8, -1.5, 1.5)); }
+function addManualTree() {
+  const u = randomU(), p = newProfile({ name: '', idMean: null, u, traits: null });
+  p.name = `Tree #${state.profiles.length + 1}`; p.manual = true; p.talkSec = 60;
+  state.profiles.push(p); addPlant(p); refreshPinSelect(); save();
+  return p;
+}
+const DEMO = [
+  ['Ana', { from: ['Chicago'], building: ['haptic gloves for VR'], studies: ['computer engineering'] }],
+  ['Kofi', { from: ['Accra'], role: ['designer'], likes: ['generative art'] }],
+  ['Mei', { 'works at': ['a robotics lab'], building: ['a plant-watering drone'], likes: ['bouldering'] }],
+  ['Diego', { from: ['Monterrey'], studies: ['physics'], building: ['spatial audio for AR'] }],
+  ['Priya', { role: ['grad student'], studies: ['HCI'], likes: ['jazz piano'] }],
+  ['Sam', { from: ['Urbana'], building: ['a voice-controlled synth'], contact: ['@samsynth'] }],
+];
+function addDemo() {
+  const used = new Set(state.profiles.map(p => p.name));
+  const [name, facts] = DEMO.find(([n]) => !used.has(n)) || [`Guest ${state.profiles.length + 1}`, {}];
+  const u = randomU();
+  const traits = { pitchHz: 150 * 2 ** (u[0] / 1.5), pitchVar: 2.5 + u[1] * 2, centroid: 1400 * 2 ** (u[2] / 1.2), dyn: 0.6 + u[4] * 0.35 };
+  const p = newProfile({ name, idMean: null, u, traits, demo: true });
+  p.facts = JSON.parse(JSON.stringify(facts)); p.talkSec = 20 + Math.random() * 200; p.laughs = Math.floor(Math.random() * 5);
+  p.words = Math.round(p.talkSec * 2.3); p.quotes = [{ t: Date.now(), text: `Hi, I'm ${name}! ${facts.building ? `We're building ${facts.building[0]}.` : ''}` }];
+  for (const v of Object.values(facts).flat()) for (const w of v.split(' ')) if (w.length >= 4) p.kw[w.toLowerCase()] = 1;
+  state.profiles.push(p); addPlant(p); refreshPinSelect(); save();
+  toast(`🧪 Demo tree planted: ${name}`);
+  return p;
+}
+function deleteProfile(p) {
+  plants.get(p.id)?.dispose(); plants.delete(p.id);
+  state.profiles = state.profiles.filter(x => x !== p);
+  for (const t of faceTracker.tracks) if (t.profileId === p.id) { t.profileId = null; t.cardKey = ''; }
+  if (state.pinnedId === p.id) setPin('');
+  if (state.current === p) state.current = null; if (state.lastSpeaker === p) state.lastSpeaker = null;
+  select(null); refreshPinSelect(); save();
+}
+
+/* =====================================================================
+   TREE EDITOR
+   ===================================================================== */
+const geneInputs = GENE_NAMES.map((n, i) => {
+  const row = document.createElement('div'); row.className = 'gene';
+  row.innerHTML = `<span class="k">${n}</span><input type="range" min="0" max="1" step="0.01"><span class="k">0</span>`;
+  const inp = row.querySelector('input'), val = row.querySelector('span:last-child');
+  inp.addEventListener('input', () => { const p = state.selected; if (!p) return; p.genome[i] = +inp.value; p.genomeEdited = true; val.textContent = (+inp.value).toFixed(2); rebuildQueue.add(p); save(); });
+  $('edGenes').appendChild(row); return { inp, val };
+});
+function renderEditor(soft = false) {
+  const p = state.selected, show = !!p && !renderer.xr.isPresenting;
+  $('editor').classList.toggle('hidden', !show);
+  if (!p) return;
+  if (!soft || document.activeElement !== $('edName')) $('edName').value = p.name;
+  if (!soft || document.activeElement !== $('edNotes')) $('edNotes').value = p.notes || '';
+  const facts = Object.entries(p.facts).filter(([k, v]) => k !== 'name' && v.length);
+  $('edFacts').innerHTML = facts.length ? facts.flatMap(([k, vals]) => vals.map((v, i) => `<div class="fact"><span class="k" style="width:64px">${esc(k)}</span><span class="v">${esc(v)}</span><button data-k="${esc(k)}" data-i="${i}">✕</button></div>`)).join('') : '<div class="k" style="font-size:12px">Nothing yet — it fills in as they talk, or add facts below.</div>';
+  if (!soft) p.genome.forEach((v, i) => { geneInputs[i].inp.value = v; geneInputs[i].val.textContent = v.toFixed(2); });
+  $('edGrowth').value = Math.min(600, p.talkSec); $('edGrowthVal').textContent = fmtDur(p.talkSec);
+  $('edBloom').value = Math.min(12, p.laughs); $('edBloomVal').textContent = p.laughs;
+  $('edSide').value = p.arSide || 'auto';
+  $('edRevert').disabled = !p.u;
+  const linked = faceTracker.trackFor(p.id);
+  $('edInfo').textContent = [describeVoice(p.traits), p.faceSig ? `face known${linked ? ' · in view' : ''}` : 'face not learned yet', p.genomeEdited ? 'shape hand-edited' : 'shape from voice'].join(' · ');
+}
+$('edClose').onclick = () => select(null);
+$('edName').oninput = e => { const p = state.selected; if (!p) return; p.name = e.target.value.trim() || p.name; p.autoName = false; plants.get(p.id)?.drawLabel(); drawPanel(p); refreshPinSelect(); save(); };
+$('edNotes').oninput = e => { const p = state.selected; if (!p) return; p.notes = e.target.value; drawPanel(p); save(); };
+$('edFacts').onclick = e => { const b = e.target.closest('button'); const p = state.selected; if (!b || !p) return; p.facts[b.dataset.k].splice(+b.dataset.i, 1); if (!p.facts[b.dataset.k].length) delete p.facts[b.dataset.k]; renderEditor(true); drawPanel(p); save(); };
+function addFactFromEditor() { const p = state.selected, v = $('edFactVal').value.trim(); if (!p || !v) return; addFact(p, $('edFactKey').value, v); $('edFactVal').value = ''; renderEditor(true); drawPanel(p); save(); }
+$('edFactAdd').onclick = addFactFromEditor;
+$('edFactVal').onkeydown = e => { if (e.key === 'Enter') addFactFromEditor(); };
+$('edRandom').onclick = () => { const p = state.selected; if (!p) return; p.genome = p.genome.map(() => Math.random()); p.seed = (Math.random() * 2 ** 32) >>> 0; p.genomeEdited = true; rebuildPlant(p); renderEditor(); save(); };
+$('edRevert').onclick = () => { const p = state.selected; if (!p || !p.u) return; p.genome = genomeFromU(p.u); p.seed = seedFromU(p.u); p.genomeEdited = false; rebuildPlant(p); renderEditor(); save(); };
+$('edGrowth').oninput = e => { const p = state.selected; if (!p) return; p.talkSec = +e.target.value; $('edGrowthVal').textContent = fmtDur(p.talkSec); plants.get(p.id)?.drawLabel(); save(); };
+$('edBloom').oninput = e => { const p = state.selected; if (!p) return; p.laughs = +e.target.value; $('edBloomVal').textContent = p.laughs; plants.get(p.id)?.drawLabel(); save(); };
+$('edSide').onchange = e => { const p = state.selected; if (!p) return; p.arSide = e.target.value; save(); };
+$('edRecord').onclick = () => { if (state.selected) startEnrollment(state.selected, faceTracker.trackFor(state.selected.id) || null); };
+$('edLinkFace').onclick = () => {
+  const p = state.selected; if (!p) return;
+  if (mode !== 'mirror') { toast('Switch to 🪞 AR mirror to link a face.'); return; }
+  const seen = faceTracker.tracks.filter(t => t.seenNow);
+  const t = faceTracker.talkingTrack() || seen.find(t => !t.profileId) || [...seen].sort((a, b) => b.w - a.w)[0];
+  if (!t) { toast('No face in view.'); return; }
+  faceTracker.link(t, p, 'linked by you'); renderEditor(true);
+};
+$('edUnlinkFace').onclick = () => { const p = state.selected; if (!p) return; p.faceSig = null; p.faceN = 0; for (const t of faceTracker.tracks) if (t.profileId === p.id) { t.profileId = null; t.cardKey = ''; } renderEditor(true); save(); toast(`Forgot ${p.name}'s face`); };
+$('edPin').onclick = () => { if (state.selected) setPin(state.selected.id); };
+$('edDelete').onclick = () => { const p = state.selected; if (p && confirm(`Remove ${p.name}'s tree?`)) deleteProfile(p); };
+
+/* =====================================================================
+   MODES: garden ⇄ AR mirror ⇄ WebXR (VR / AR passthrough)
+   ===================================================================== */
+const savedView = { pos: new THREE.Vector3(0, 0, 3.4), yaw: 0, pitch: 0 };
+let yaw = 0, pitchLook = 0;
+async function setMode(m) {
+  if (m === mode) return;
+  if (m === 'mirror') {
+    try { await faceTracker.start(); } catch (e) { toast('Camera error: ' + e.message, 5000); return; }
+    savedView.pos.copy(rig.position); savedView.yaw = yaw; savedView.pitch = pitchLook;
+    mode = 'mirror';
+    rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0);
+    camera.fov = 45; camera.updateProjectionMatrix();
+    video.style.display = 'block'; video.style.transform = faceTracker.mirror ? 'scaleX(-1)' : 'none';
+    $('crosshair').style.display = 'none'; $('camRow').classList.remove('hidden'); panel.visible = false;
+    for (const pl of plants.values()) { pl.group.visible = false; pl.arInit = false; }
+    if (!engine.running) toast('Tip: click 🎤 Start listening so talking grows plants and links voices to faces.', 5000);
+  } else {
+    mode = 'garden'; faceTracker.stop();
+    video.style.display = 'none'; $('crosshair').style.display = ''; $('camRow').classList.add('hidden');
+    rig.position.copy(savedView.pos); yaw = savedView.yaw; pitchLook = savedView.pitch;
+    camera.position.set(0, 1.6, 0); camera.fov = 70; camera.updateProjectionMatrix();
+    for (const pl of plants.values()) { pl.group.visible = true; pl.group.position.copy(pl.home); pl.group.scale.setScalar(1); pl.group.rotation.set(0, 0, 0); }
+    if (state.selected) select(plants.get(state.selected.id));
+  }
+  applyEnv();
+  $('btnGarden').classList.toggle('on', mode === 'garden'); $('btnMirror').classList.toggle('on', mode === 'mirror');
+}
+function placePlantsForXR() {
+  for (const pl of plants.values()) {
+    if (xrMode === 'immersive-ar') { pl.group.position.copy(pl.p.arPos ? new THREE.Vector3(...pl.p.arPos) : arDefault(pl.p.slot)); pl.group.scale.setScalar(CFG.AR_SCALE); }
+    else { pl.group.position.copy(pl.home); pl.group.scale.setScalar(1); }
+    pl.group.rotation.set(0, 0, 0); pl.group.visible = true;
+  }
+}
+async function setupXRButtons() {
+  if (!navigator.xr) { $('xrButtons').innerHTML = '<span class="k" style="font-size:11px">no WebXR device</span>'; return; }
+  for (const [m, label] of [['immersive-vr', '🥽 VR'], ['immersive-ar', '📱 AR headset/phone']]) {
+    let ok = false; try { ok = await navigator.xr.isSessionSupported(m); } catch (_) { }
+    if (!ok) continue;
+    const b = document.createElement('button'); b.textContent = label; b.onclick = () => enterXR(m); $('xrButtons').appendChild(b);
+  }
+  if (!$('xrButtons').children.length) $('xrButtons').innerHTML = '<span class="k" style="font-size:11px">no headset detected</span>';
+}
+async function enterXR(m) {
+  if (renderer.xr.isPresenting) return;
+  if (mode === 'mirror') await setMode('garden');
+  const init = m === 'immersive-ar'
+    ? { optionalFeatures: ['local-floor', 'hit-test', 'dom-overlay', 'hand-tracking'], domOverlay: { root: $('xrOverlay') } }
+    : { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] };
+  try {
+    const s = await navigator.xr.requestSession(m, init);
+    const floor = !s.enabledFeatures || s.enabledFeatures.includes('local-floor');
+    renderer.xr.setReferenceSpaceType(floor ? 'local-floor' : 'local'); xrFloorY = floor ? 0 : -1.4;
+    savedView.pos.copy(rig.position); savedView.yaw = yaw;
+    if (m === 'immersive-ar') { rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); yaw = 0; }
+    await renderer.xr.setSession(s);
+    xrMode = m; applyEnv(); placePlantsForXR(); renderEditor();
+    if (m === 'immersive-ar') {
+      $('xrOverlay').classList.remove('hidden');
+      try { const vs = await s.requestReferenceSpace('viewer'); hitTestSource = await s.requestHitTestSource({ space: vs }); } catch (e) { console.warn('hit-test unavailable', e); }
+    }
+    s.addEventListener('end', () => {
+      xrMode = null; hitTestSource?.cancel?.(); hitTestSource = null; reticle.visible = false; $('xrOverlay').classList.add('hidden');
+      rig.position.copy(savedView.pos); yaw = savedView.yaw; applyEnv(); placePlantsForXR(); renderEditor();
+    });
+  } catch (e) { toast(`Could not start ${m}: ${e.message}`, 5000); }
+}
+renderer.xr.addEventListener('sessionstart', () => { camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0); $('crosshair').style.display = 'none'; });
+renderer.xr.addEventListener('sessionend', () => { camera.position.set(0, 1.6, 0); camera.rotation.set(pitchLook, 0, 0); $('crosshair').style.display = ''; });
+$('xrOverlay').addEventListener('beforexrselect', e => e.preventDefault());
+$('xrPlant').onclick = () => startEnrollment();
+$('xrBloom').onclick = () => bloomSomeone();
+$('xrExit').onclick = () => renderer.xr.getSession()?.end();
+
+/* =====================================================================
+   INPUT: desktop
+   ===================================================================== */
+const keys = new Set(); let dragging = false, moved = 0;
+const raycaster = new THREE.Raycaster();
+function bloomSomeone() { const p = state.selected || attributedSpeaker() || state.lastSpeaker; if (p) triggerBloom(p, 'manual'); else toast('Select or pin someone to bloom.'); }
+addEventListener('keydown', e => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) { if (e.key === 'Escape') e.target.blur(); return; }
+  const k = e.key.toLowerCase(); keys.add(k);
+  if (k === 'n') startEnrollment();
+  else if (k === 't') { const p = addManualTree(); select(plants.get(p.id)); }
+  else if (k === 'b') bloomSomeone();
+  else if (k === 'm') setMode(mode === 'mirror' ? 'garden' : 'mirror');
+  else if (k === 'h') $('hud').classList.toggle('hidden');
+  else if (k === 'escape') { if (state.enrolling) cancelEnrollment(); else select(null); }
+  else if (k === '0') setPin('');
+  else if (/^[1-9]$/.test(k)) { const p = state.profiles[+k - 1]; if (p) setPin(p.id); }
+});
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+renderer.domElement.addEventListener('pointerdown', e => { dragging = true; moved = 0; renderer.domElement.setPointerCapture(e.pointerId); });
+renderer.domElement.addEventListener('pointermove', e => { if (!dragging || mode === 'mirror') return; moved += Math.abs(e.movementX) + Math.abs(e.movementY); yaw -= e.movementX * 0.004; pitchLook = clamp(pitchLook - e.movementY * 0.004, -1.2, 1.2); });
+renderer.domElement.addEventListener('pointerup', e => {
+  dragging = false;
+  if (moved < 6) { raycaster.setFromCamera(new THREE.Vector2(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), camera); pick(raycaster); }
+});
+function pick(rc) {
+  if (panel.visible && rc.intersectObject(panel).length) return true;
+  const hit = rc.intersectObjects(hitboxes).find(h => h.object.userData.plant.group.visible);
+  select(hit ? hit.object.userData.plant : null);
+  return !!hit;
+}
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+/* =====================================================================
+   INPUT: XR controllers (VR + AR)
+   ===================================================================== */
+const ctrlFactory = new XRControllerModelFactory();
+[0, 1].forEach(i => {
+  const c = renderer.xr.getController(i); rig.add(c);
+  const grip = renderer.xr.getControllerGrip(i); grip.add(ctrlFactory.createControllerModel(grip)); rig.add(grip);
+  c.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -6)]), new THREE.LineBasicMaterial({ color: 0x9dffb8, transparent: true, opacity: 0.5 })));
+  c.addEventListener('connected', e => { c.userData.hand = e.data.handedness; if (e.data.handedness === 'left') grip.add(wrist); });
+  c.addEventListener('disconnected', () => { if (wrist.parent === grip) grip.remove(wrist); });
+  c.addEventListener('selectstart', () => {
+    if (c.userData.hand === 'left') { startEnrollment(); return; }
+    const m = new THREE.Matrix4().extractRotation(c.matrixWorld);
+    raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld); raycaster.ray.direction.set(0, 0, -1).applyMatrix4(m);
+    if (pick(raycaster)) return;
+    if (xrMode === 'immersive-ar' && reticle.visible && state.prevSelected) {   // move the plant that was selected to the floor point
+      const p = state.prevSelected, v = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+      p.arPos = v.toArray(); plants.get(p.id)?.group.position.copy(v); select(plants.get(p.id)); save();
+    }
+  });
+  c.addEventListener('squeezestart', bloomSomeone);
+});
+let snapReady = true;
+function xrInput(dt) {
+  const session = renderer.xr.getSession(); if (!session || xrMode === 'immersive-ar') return;
+  for (const src of session.inputSources) {
+    const gp = src.gamepad; if (!gp || gp.axes.length < 4) continue;
+    const ax = gp.axes[2], ay = gp.axes[3];
+    if (src.handedness === 'left' && (Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15)) {
+      const head = new THREE.Vector3(); camera.getWorldDirection(head); head.y = 0; head.normalize();
+      const right = new THREE.Vector3().crossVectors(head, new THREE.Vector3(0, 1, 0));
+      rig.position.addScaledVector(head, -ay * dt * 1.6).addScaledVector(right, ax * dt * 1.6);
+    }
+    if (src.handedness === 'right') { if (Math.abs(ax) > 0.7 && snapReady) { rig.rotation.y -= Math.sign(ax) * Math.PI / 6; snapReady = false; } if (Math.abs(ax) < 0.3) snapReady = true; }
+  }
+}
+
+/* =====================================================================
+   HUD wiring
+   ===================================================================== */
+$('btnGarden').onclick = () => setMode('garden');
+$('btnMirror').onclick = () => setMode('mirror');
+$('camSelect').onchange = async e => { try { await faceTracker.start(e.target.value); } catch (err) { toast('Camera error: ' + err.message); } };
+$('camMirror').onchange = e => { faceTracker.mirror = e.target.checked; video.style.transform = faceTracker.mirror ? 'scaleX(-1)' : 'none'; for (const t of faceTracker.tracks) t.init = false; };
+$('btnStart').onclick = async () => {
+  if (engine.running) return;
+  try { await engine.start(); transcriber.start(); $('btnStart').textContent = '🎤 Listening'; $('btnStart').disabled = true; $('micState').textContent = 'on'; toast('Listening. Press N to plant a voice.'); }
+  catch (err) { console.error(err); toast('Mic error: ' + err.message, 6000); }
+};
+$('btnEnroll').onclick = () => startEnrollment();
+$('btnAddTree').onclick = () => { const p = addManualTree(); select(plants.get(p.id)); };
+$('enrollCancel').onclick = cancelEnrollment;
+$('btnBloom').onclick = bloomSomeone;
+$('btnDemo').onclick = () => { const p = addDemo(); if (mode === 'mirror') toast(`🧪 ${p.name} planted — link them to a face from its card`); };
+const bindSlider = (id, key, digits) => { $(id).oninput = e => { CFG[key] = +e.target.value; $(id + 'Val').textContent = (+e.target.value).toFixed(digits); }; };
+bindSlider('thresh', 'ID_THRESHOLD', 2); bindSlider('fthresh', 'FACE_THRESHOLD', 3); bindSlider('mthresh', 'MOUTH_VAR', 3);
+$('pinSelect').onchange = e => setPin(e.target.value);
+$('btnExport').onclick = () => { flush(); const blob = new Blob([JSON.stringify({ v: 1, profiles: state.profiles, norm: state.norm.toJSON() }, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `voiceprint-garden-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
+$('btnImport').onclick = () => $('fileImport').click();
+$('fileImport').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { const o = JSON.parse(await f.text()); let n = 0; for (const p of o.profiles || []) { if (profileById(p.id)) continue; p.slot = nextSlot(); state.profiles.push(p); addPlant(p); n++; } if (o.norm && state.norm.n < 30) state.norm = RunningNorm.from(o.norm); refreshPinSelect(); save(); toast(`Imported ${n} trees`); }
+  catch (err) { toast('Import failed: ' + err.message); }
+  e.target.value = '';
+};
+$('btnReset').onclick = () => { if (!confirm('Delete every tree in this garden?')) return; for (const p of [...state.profiles]) deleteProfile(p); localStorage.removeItem(STORE_KEY); dirty = false; };
+function setPin(id) { state.pinnedId = id; $('pinSelect').value = id; state.current = id ? profileById(id) : null; toast(id ? `📌 Speech now goes to ${profileById(id)?.name}` : 'Auto: voice + face recognition'); }
+function refreshPinSelect() {
+  const s = $('pinSelect'), v = state.pinnedId;
+  s.innerHTML = '<option value="">Auto (voice + face)</option>' + state.profiles.map((p, i) => `<option value="${p.id}">${i < 9 ? (i + 1) + '. ' : ''}${esc(p.name)}</option>`).join('');
+  s.value = v;
+}
+function updateHUD() {
+  $('meter').style.width = `${clamp(state.loud / 0.1, 0, 1) * 100}%`;
+  const p = state.enrolling ? null : attributedSpeaker();
+  const talking = engine.lastFrame?.speaking;
+  $('speaker').textContent = state.enrolling ? 'planting voice…' : p ? `${p.name}${talking ? ' 🗣' : ''}${visionSpeaker() === p ? ' 👤' : ''}` : (talking && state.idWindow.length >= 12 ? 'unknown voice — press N to plant' : '—');
+  $('idDebug').textContent = engine.running ? `voice distance: ${state.idInfo || '…'}` : '';
+  if (mode === 'mirror') $('faceState').textContent = `${faceTracker.status}${faceTracker.lm ? ` · ${faceTracker.tracks.filter(t => t.seenNow).length} face(s)` : ''}`;
+  if (state.enrolling) {
+    const en = state.enrolling; $('enrollBar').style.width = `${en.progress * 100}%`;
+    $('enrollText').textContent = en.voiced === 0 ? 'Waiting for voice…' : `Hearing them… ${Math.round(en.progress * 100)}%  (${en.transcripts.length} phrases caught)`;
+  }
+  if (xrMode === 'immersive-ar') $('xrStatus').textContent = state.enrolling ? `Planting… ${Math.round(state.enrolling.progress * 100)}%` : `${p ? '🗣 ' + p.name : 'Listening'}${state.selected ? ' · selected: ' + state.selected.name : ''}`;
+}
+
+/* =====================================================================
+   RENDER LOOP
+   ===================================================================== */
+load();
+for (const p of state.profiles) { p.arSide ??= 'auto'; addPlant(p); }
+refreshPinSelect(); setupXRButtons(); applyEnv();
+if (!state.profiles.length) setTimeout(() => toast('Click 🎤 Start listening, then 🪞 AR mirror — or 🧪 Demo / ➕ Add tree to start.', 6000), 600);
+
+const clock = new THREE.Clock(); let hudT = 0, slowT = 0, cardT = 0;
+renderer.setAnimationLoop((time, frame) => {
+  const dt = Math.min(0.05, clock.getDelta()), t = clock.elapsedTime;
+  if (renderer.xr.isPresenting) { xrInput(dt); if (xrMode !== 'immersive-ar') yaw = rig.rotation.y; }
+  else if (mode === 'garden') {
+    rig.rotation.y = yaw; camera.rotation.set(pitchLook, 0, 0);
+    const f = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), r = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)), sp = 2.2 * dt;
+    if (keys.has('w') || keys.has('arrowup')) rig.position.addScaledVector(f, sp);
+    if (keys.has('s') || keys.has('arrowdown')) rig.position.addScaledVector(f, -sp);
+    if (keys.has('a') || keys.has('arrowleft')) rig.position.addScaledVector(r, -sp);
+    if (keys.has('d') || keys.has('arrowright')) rig.position.addScaledVector(r, sp);
+  }
+  if (keys.has('g') && state.selected) state.selected.talkSec += dt * 20;
+  for (const p of rebuildQueue) rebuildPlant(p); rebuildQueue.clear();
+  if (mode === 'mirror' && !renderer.xr.isPresenting) { faceTracker.update(); faceTracker.layout(); cardT += dt; if (cardT > 0.25) { cardT = 0; faceTracker.renderCards(); } }
+  for (const pl of plants.values()) pl.update(dt, t);
+  if (env.visible) fireflies.update(t);
+  bursts.update(dt); updateWords(dt);
+  // AR hit-test reticle
+  if (xrMode === 'immersive-ar' && hitTestSource && frame) {
+    const hits = frame.getHitTestResults(hitTestSource);
+    if (hits.length) { const pose = hits[0].getPose(renderer.xr.getReferenceSpace()); reticle.matrix.fromArray(pose.transform.matrix); reticle.visible = true; } else reticle.visible = false;
+  }
+  if (state.selected) state.prevSelected = state.selected;
+  if (enrollMarker.visible && state.enrolling) {
+    const pr = state.enrolling.progress; seedMesh.scale.setScalar(1 + 0.25 * Math.sin(t * 6) + pr);
+    enrollRing.geometry.dispose(); enrollRing.geometry = new THREE.RingGeometry(0.3, 0.36, 64, 1, 0, Math.max(0.001, pr * TAU));
+  }
+  if (panel.visible) placePanel();
+  hudT += dt; slowT += dt;
+  if (hudT > 0.1) { hudT = 0; updateHUD(); if (renderer.xr.isPresenting) drawWrist(); }
+  if (slowT > 2) { slowT = 0; for (const pl of plants.values()) pl.drawLabel(); if (state.selected) { drawPanel(state.selected); renderEditor(true); } }
+  renderer.render(scene, camera);
+});
+
+window.garden = { state, plants, engine, faceTracker, CFG, addDemo, addManualTree, triggerBloom, setMode };
+
+/* =====================================================================
+   PICoVoice bridge (added for the PICoVoice example; not in the original)
+   When this page is served by the PICoVoice server (bun run ingest -> /garden):
+   - everyone in the Mind Palace gets a tree (GET /api/garden.json), and
+     leaves the garden when they are deleted in PICoVoice;
+   - what they say through the glasses grows their tree, adds their quotes
+     and facts, and floats their words (GET /api/live + transcript lines).
+   On any other host (e.g. GitHub Pages) /api/live is missing and this does nothing.
+   ===================================================================== */
+const PV = { on: false, run: null, after: 0, first: true, busy: false, seen: new Set() };
+try { PV.seen = new Set(JSON.parse(localStorage.getItem('picovoice-seen') || '[]')); } catch (_) { }
+const pvSaveSeen = () => { try { localStorage.setItem('picovoice-seen', JSON.stringify([...PV.seen])); } catch (_) { } };
+async function pvGet(path) { const r = await fetch(path, { cache: 'no-store' }); if (!r.ok) throw new Error(path + ' ' + r.status); return r.json(); }
+function pvStatus(txt) { $('pvRow').style.display = ''; $('pvStatus').textContent = txt; }
+async function pvSyncPeople() {
+  const { profiles } = await pvGet('/api/garden.json');
+  const ids = new Set(profiles.map(p => p.id));
+  let added = 0;
+  for (const p of profiles) {
+    const have = profileById(p.id);
+    if (have) {
+      // Keep the garden's own growth, quotes and shape; take name, notes and facts from PICoVoice.
+      let changed = false;
+      if (have.name !== p.name) { have.name = p.name; changed = true; }
+      if (p.notes && have.notes !== p.notes) { have.notes = p.notes; changed = true; }
+      for (const [k, vals] of Object.entries(p.facts || {})) for (const v of vals) {
+        const before = (have.facts[k] || []).join('|'); addFact(have, k, v); if ((have.facts[k] || []).join('|') !== before) changed = true;
+      }
+      if (changed) { plants.get(have.id)?.drawLabel(); save(); }
+      continue;
+    }
+    if (PV.seen.has(p.id)) continue;   // removed in the garden on purpose: don't bring it back
+    p.slot = nextSlot(); state.profiles.push(p); addPlant(p); PV.seen.add(p.id); added++;
+  }
+  // "Delete my voice and data" in PICoVoice removes their tree here too.
+  for (const p of [...state.profiles]) if (p.source === 'picovoice' && !ids.has(p.id)) deleteProfile(p);
+  if (added) { pvSaveSeen(); refreshPinSelect(); save(); toast(`🌱 ${added} ${added === 1 ? 'person' : 'people'} from PICoVoice`); }
+}
+async function pvPollSpeech() {
+  const { live } = await pvGet('/api/live');
+  if (!live) { pvStatus('connected · no conversation yet'); return; }
+  if (live.run_id !== PV.run) { PV.run = live.run_id; PV.after = 0; }
+  const { utterances, lastId } = await pvGet(`/api/sessions/${encodeURIComponent(PV.run)}/utterances?after=${PV.after}`);
+  PV.after = lastId;
+  // On first connect, skip what was already said: only new lines grow trees.
+  if (PV.first) { PV.first = false; } else {
+    for (const u of utterances) {
+      if (!u.speech_final || !u.text) continue;
+      const p = u.person_id ? profileById('picovoice-' + u.person_id) : null;
+      if (!p) { logLine('Glasses · Speaker ' + String(u.speaker_label).replace(/^S/, ''), u.text); continue; }
+      p.talkSec += Math.max(0, u.t_end - u.t_start);
+      addUtterance(p, u.text);
+    }
+  }
+  pvStatus(live.ended_at ? 'connected · last conversation ended' : 'connected · listening through the glasses');
+}
+async function pvTick() {
+  if (PV.busy) return; PV.busy = true;
+  try { await pvSyncPeople(); await pvPollSpeech(); PV.on = true; }
+  catch (e) { if (PV.on) pvStatus('lost connection to the PICoVoice server'); }
+  finally { PV.busy = false; }
+}
+fetch('/api/live', { cache: 'no-store' }).then(r => { if (r.ok) { pvStatus('connecting…'); pvTick(); setInterval(pvTick, 2500); } }).catch(() => { });
+</script>
+</body>
+</html>
+
+

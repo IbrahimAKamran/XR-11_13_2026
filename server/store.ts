@@ -34,6 +34,7 @@ export interface DashboardUtterance {
   speaker_label: string
   text: string
   speech_final: number
+  person_id: number | null
   person_name: string | null
 }
 
@@ -123,7 +124,7 @@ export class Store {
   utterancesSince(runId: string, afterId = 0, limit = 500): DashboardUtterance[] {
     return this.db
       .query(
-        `SELECT u.id, u.t_start, u.t_end, u.speaker_label, u.text, u.speech_final, p.display_name AS person_name
+        `SELECT u.id, u.t_start, u.t_end, u.speaker_label, u.text, u.speech_final, a.person_id, p.display_name AS person_name
          FROM utterances u
          LEFT JOIN speaker_assignments a ON a.run_id = u.run_id AND a.speaker_label = u.speaker_label
          LEFT JOIN people p ON p.id = a.person_id

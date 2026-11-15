@@ -3,6 +3,7 @@
  *
  *   GET    /app                  the app (server/app/index.html), open it on the phone
  *   GET    /app/<file>           its static files (server/app/)
+ *   GET    /garden               Voice Garden, the example project (examples/voice-garden/)
  *   GET    /api/people           everyone in the Mind Palace
  *   GET    /api/people/:id       one person, with quotes and conversations
  *   POST   /api/people           {name, role?, metAt?, notes?, voiceConsent, runId?, speakerLabel?}
@@ -16,6 +17,7 @@ import {toGardenExport} from "./garden"
 import {People, READY_SECONDS} from "./people"
 
 const APP_DIR = join(import.meta.dir, "app")
+const GARDEN_PAGE = join(import.meta.dir, "..", "examples", "voice-garden", "index.html")
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {status, headers: {"content-type": "application/json", "cache-control": "no-store"}})
@@ -25,6 +27,9 @@ const TYPES: Record<string, string> = {html: "text/html; charset=utf-8", jpg: "i
 export async function appRoute(req: Request, url: URL, people: People): Promise<Response | null> {
   const path = url.pathname.replace(/\/+$/, "") || "/"
 
+  if (req.method === "GET" && path === "/garden") {
+    return new Response(Bun.file(GARDEN_PAGE), {headers: {"content-type": "text/html; charset=utf-8", "cache-control": "no-store"}})
+  }
   if (req.method === "GET" && (path === "/app" || path.startsWith("/app/"))) {
     const rel = path === "/app" ? "index.html" : path.slice("/app/".length)
     const file = normalize(join(APP_DIR, rel))

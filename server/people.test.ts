@@ -151,3 +151,24 @@ describe("memory garden export", () => {
     expect(maya.seed).not.toBe(priya.seed)
   })
 })
+
+describe("voice garden example", () => {
+  test("is served at /garden with the PICoVoice bridge", async () => {
+    const {people} = setup()
+    const req = new Request("http://localhost/garden")
+    const res = (await appRoute(req, new URL(req.url), people))!
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain("<title>Voice Garden")
+    expect(html).toContain("/api/garden.json")
+    expect(html).toContain("Ibrahim Kamran")
+  })
+
+  test("transcript lines carry the person id once a voice is linked", () => {
+    const {store, people} = setup()
+    const id = people.create({name: "Maya", voiceConsent: true, runId: "r1", speakerLabel: "S1"})
+    const rows = store.utterancesSince("r1")
+    expect(rows.filter((u) => u.speaker_label === "S1").every((u) => u.person_id === id)).toBe(true)
+    expect(rows.find((u) => u.speaker_label === "S0")!.person_id).toBeNull()
+  })
+})
