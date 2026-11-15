@@ -184,6 +184,43 @@ ready. Per the SDK types, disabling VAD keeps audio frames flowing and the loudn
 miniapp disconnects; whether the phone honoured each call shows in the log as `glasses VAD gating disabled` /
 `loudness gate disabled` or `could not disable ...`.
 
+## PICoVoice phone app (Mind Palace) and live transcript
+
+The ingest server also serves two pages for your phone. Open them in Safari on a
+phone on the same Wi-Fi as the Mac:
+
+- `http://<mac-ip>:3100/app`: **PICoVoice**. Welcome and setup screens, the
+  Mind Palace (everyone you met), a profile for each person, a form to save a
+  new voice with their spoken consent, and a Live screen that shows who is
+  speaking in the newest conversation, what they said, and what they said last
+  time.
+- `http://<mac-ip>:3100/dashboard`: the raw live transcript, coloured by speaker.
+
+Both poll over plain HTTP every 2 s (WebSockets from the iPhone fail, see
+Troubleshooting). Find the Mac's IP with `ipconfig getifaddr en0`.
+
+Try them without the glasses:
+
+```bash
+bun run ingest                 # terminal 1
+bun run seed --names           # terminal 2: a finished conversation, S1 saved as "Maya Chen"
+bun run seed --live            # or: a new line every 2 s, to watch Live update
+```
+
+How voices become people: on the Live screen an unknown voice shows as
+"New voice · Speaker N". **Save** opens the form; if they say yes to a voice
+profile, that speaker label is linked to them (`people` + `speaker_assignments`).
+In a later conversation, pick them from "That's someone I've met…" to add to
+their history. People who choose **Name only** are never linked to a voice.
+Deleting a person removes their profile, voice links and the lines they said.
+
+Not yet: recognising a voice automatically in a new conversation. Speaker labels
+reset each session, so that needs voice embeddings in the `voiceprints` table.
+
+API: `GET /api/people`, `GET /api/people/:id`, `POST /api/people`,
+`DELETE /api/people/:id`, `POST /api/assign`, `GET /api/live`,
+`GET /api/sessions`, `GET /api/sessions/:runId/utterances?after=N`.
+
 ## Verification checklist
 
 1. `./run.sh` prints `[ingest] listening on http://0.0.0.0:3100/ingest` and `sidecar listening on :3001` (or the
@@ -255,10 +292,15 @@ fieldassist/
 ├── src/ui/                   # tiny status page shown when the tile is opened
 ├── server/ingest.ts          # runs on the Mac: HTTP receiver, prints transcripts/stats, writes recordings, drives the transcriber
 ├── server/deepgram.ts        # Deepgram live stream + diarization (segments per speaker)
-├── server/store.ts           # SQLite: sessions, utterances, events (+ empty people/voiceprints tables)
+├── server/store.ts           # SQLite: sessions, utterances, events (+ people/voiceprints/speaker_assignments tables)
+├── server/people.ts          # Mind Palace: people, consent, speaker-label links, live speakers
+├── server/app-routes.ts      # GET /app (PICoVoice phone app) + /api/people, /api/assign, /api/live
+├── server/app/               # the PICoVoice app page and its photo
+├── server/dashboard.ts       # GET /dashboard (live transcript) + /api/sessions
+├── scripts/seed-demo.ts      # `bun run seed [--live] [--names]`: fake conversations for testing without glasses
 ├── data/fieldassist.sqlite   # created on first run (git-ignored)
 ├── server/wav.ts             # 16-bit PCM WAV writer (header patched on every write)
-└── server/*.test.ts          # `bun test` (WAV writer, Deepgram segment parser, store)
+└── server/*.test.ts          # `bun test` (WAV writer, Deepgram segment parser, store, dashboard, people + app routes)
 ```
 
 Versions: `@mentra/miniapp` 3.4.0 (npm `latest`), `@mentra/miniapp-cli` 0.1.0-dev.2 (npm `dev` tag; it

@@ -4,12 +4,13 @@
  *
  *   bun run seed            one finished conversation, written at once
  *   bun run seed --live     a "live" conversation: one new line every 2 s
- *   bun run seed --names    also assign names to the speaker labels (preview of step 6)
+ *   bun run seed --names    also save S1 as "Maya Chen" in the Mind Palace (PICoVoice app)
  *
  * Uses the same database as the ingest server (FIELDASSIST_DB, default
  * data/fieldassist.sqlite). Runs alongside `bun run ingest`; SQLite handles both.
  */
 import {join} from "node:path"
+import {People} from "../server/people"
 import {Store} from "../server/store"
 
 const DB_PATH = process.env.FIELDASSIST_DB ?? join(import.meta.dir, "..", "data", "fieldassist.sqlite")
@@ -34,14 +35,8 @@ const runId = `demo-${Date.now().toString(36)}`
 store.startSession({runId, startedAt: Date.now(), provider: "seed"})
 
 if (names) {
-  const now = Date.now()
-  for (const [label, name] of [["S0", "Host"], ["S1", "Maya"]] as const) {
-    const res = store.db.run(`INSERT INTO people (display_name, created_at) VALUES (?, ?)`, [name, now])
-    store.db.run(
-      `INSERT INTO speaker_assignments (run_id, speaker_label, person_id, confidence, method, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      [runId, label, Number(res.lastInsertRowid), 1, "seed", now],
-    )
-  }
+  const people = new People(store.db)
+  people.create({name: "Maya Chen", role: "Product designer", metAt: "Demo booth, day 1", voiceConsent: true, runId, speakerLabel: "S1"})
 }
 
 let t = 0.5
