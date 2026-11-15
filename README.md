@@ -205,7 +205,14 @@ Try them without the glasses:
 bun run ingest                 # terminal 1
 bun run seed --names           # terminal 2: a finished conversation, S1 saved as "Maya Chen"
 bun run seed --live            # or: a new line every 2 s, to watch Live update
+bun run replay ~/Downloads/conversation.m4a   # or: play a real recording in, like the phone does
 ```
+
+`bun run replay <file> [more files] [--fast] [--url http://<mac-ip>:3100]` sends
+any audio file ffmpeg can read (voice memos, WAV, MP3) through the full
+pipeline: WAV recording, Deepgram speaker labels (when `DEEPGRAM_API_KEY` is
+set), SQLite, `/dashboard` and `/app`. Each file becomes its own conversation.
+Leave `--fast` off when Deepgram is on, so it streams at real-time speed.
 
 How voices become people: on the Live screen an unknown voice shows as
 "New voice · Speaker N". **Save** opens the form; if they say yes to a voice
@@ -298,6 +305,7 @@ fieldassist/
 ├── server/app/               # the PICoVoice app page and its photo
 ├── server/dashboard.ts       # GET /dashboard (live transcript) + /api/sessions
 ├── scripts/seed-demo.ts      # `bun run seed [--live] [--names]`: fake conversations for testing without glasses
+├── scripts/replay-audio.ts   # `bun run replay <file>`: play a recording into the server as if from the phone
 ├── data/fieldassist.sqlite   # created on first run (git-ignored)
 ├── server/wav.ts             # 16-bit PCM WAV writer (header patched on every write)
 └── server/*.test.ts          # `bun test` (WAV writer, Deepgram segment parser, store, dashboard, people + app routes)

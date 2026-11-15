@@ -9,7 +9,8 @@
     "pack": "mentra-miniapp pack",
     "ingest": "bun run server/ingest.ts",
     "test": "bun test",
-    "seed": "bun run scripts/seed-demo.ts"
+    "seed": "bun run scripts/seed-demo.ts",
+    "replay": "bun run scripts/replay-audio.ts"
   },
   "dependencies": {
     "@mentra/miniapp": "3.4.0",
