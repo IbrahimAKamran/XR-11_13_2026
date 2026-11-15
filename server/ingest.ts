@@ -11,7 +11,7 @@
  *   POST /ingest/audio   {runId, chunks: [{seq, data (base64), sampleRate?, format?, t}, ...]}
  * It also serves a read-only dashboard (server/dashboard.ts): GET /dashboard,
  * GET /api/sessions, GET /api/sessions/:runId/utterances?after=N, and the
- * PICoVoice phone app (server/app-routes.ts) at GET /app with /api/people and /api/live.
+ * Picavoice phone app (server/app-routes.ts) at GET /app with /api/people and /api/live.
  * A WebSocket on any path carrying the same objects as text frames is also
  * accepted, for clients where WebSockets work.
  *
@@ -502,7 +502,7 @@ if (TRANSCRIBE === "deepgram") {
 } else {
   log(`transcription: off (set DEEPGRAM_API_KEY in .env to enable Deepgram with speaker labels)`)
 }
-log(`PICoVoice app: http://<this-mac-ip>:${server.port}/app · transcript: /dashboard (open on the phone)`)
+log(`Picavoice app: http://<this-mac-ip>:${server.port}/app · transcript: /dashboard (open on the phone)`)
 log(`waiting for the phone; transcript lines and audio stats will appear here`)
 
 let shuttingDown = false

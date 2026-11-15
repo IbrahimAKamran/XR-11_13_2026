@@ -3,7 +3,7 @@
  * does: a hello, then 16 kHz mono 16-bit PCM in 100 ms chunks posted every
  * 250 ms to /ingest/audio, then an end event. Everything downstream runs for
  * real: the WAV recording, Deepgram with speaker labels (if DEEPGRAM_API_KEY
- * is set), SQLite, /dashboard and the PICoVoice app at /app.
+ * is set), SQLite, /dashboard and the Picavoice app at /app.
  *
  *   bun run replay <file> [<file> ...] [--fast] [--url http://localhost:3100]
  *

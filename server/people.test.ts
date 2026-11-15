@@ -129,13 +129,13 @@ describe("memory garden export", () => {
     const get = async () => {
       const req = new Request("http://localhost/api/garden.json")
       const res = (await appRoute(req, new URL(req.url), people))!
-      expect(res.headers.get("content-disposition")).toContain("picovoice-garden-")
+      expect(res.headers.get("content-disposition")).toContain("picavoice-garden-")
       return (await res.json()) as {v: number; profiles: any[]}
     }
     const a = await get()
     expect(a.v).toBe(1)
     const maya = a.profiles.find((p) => p.name === "Maya Chen")
-    expect(maya.id).toMatch(/^picovoice-\d+$/)
+    expect(maya.id).toMatch(/^picavoice-\d+$/)
     expect(maya.genome).toHaveLength(10)
     expect(maya.u).toHaveLength(14)
     expect(maya.genome.every((g: number) => g >= 0 && g <= 1)).toBe(true)
@@ -153,7 +153,7 @@ describe("memory garden export", () => {
 })
 
 describe("voice garden example", () => {
-  test("is served at /garden with the PICoVoice bridge", async () => {
+  test("is served at /garden with the Picavoice bridge", async () => {
     const {people} = setup()
     const req = new Request("http://localhost/garden")
     const res = (await appRoute(req, new URL(req.url), people))!

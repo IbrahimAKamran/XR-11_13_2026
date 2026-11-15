@@ -4,11 +4,11 @@
  * Memory Garden (https://ibrahimakamran.github.io/Memory-Garden/) is a separate
  * web app that grows a 3D tree per person and shows it beside their head in a
  * webcam "AR mirror". It imports `{v: 1, profiles: [...]}` with its ⬆ Import
- * button. This builds that file from PICoVoice's people, so everyone you met
+ * button. This builds that file from Picavoice's people, so everyone you met
  * through the glasses appears in the garden with their facts and quotes.
  *
  * Tree shapes: Memory Garden normally derives a tree's 10 genes from the
- * browser mic. PICoVoice has no voice features to give it yet, so the genes
+ * browser mic. Picavoice has no voice features to give it yet, so the genes
  * come from a stable hash of the person, marked genomeEdited so the garden
  * keeps them. The same person always grows the same tree. Faces are linked in
  * the garden itself ("Link face in view").
@@ -40,7 +40,7 @@ export interface GardenProfile {
   quotes: Array<{t: number; text: string}>
   facts: Record<string, string[]>
   kw: Record<string, 1>
-  source: "picovoice"
+  source: "picavoice"
 }
 
 /** Deterministic pseudo-random numbers in [0, 1) from a string (mulberry32 over an FNV-1a seed). */
@@ -60,7 +60,7 @@ function stream(key: string): () => number {
 const STOP = new Set(["that", "this", "with", "have", "what", "from", "they", "there", "about", "would", "should", "could", "their", "been", "were", "just", "like", "really", "think", "know"])
 
 export function toGardenProfile(p: PersonDetail): GardenProfile {
-  const rnd = stream(`picovoice:${p.id}:${p.display_name}`)
+  const rnd = stream(`picavoice:${p.id}:${p.display_name}`)
   const u = Array.from({length: 14}, () => Math.round((rnd() * 3 - 1.5) * 1000) / 1000)
   const genome = Array.from({length: 10}, () => Math.round((0.15 + rnd() * 0.7) * 1000) / 1000)
   const seed = Math.floor(rnd() * 2 ** 32)
@@ -75,7 +75,7 @@ export function toGardenProfile(p: PersonDetail): GardenProfile {
     for (const w of (v ?? "").toLowerCase().match(/[a-z][a-z'-]{3,}/g) ?? []) if (!STOP.has(w)) kw[w] = 1
   }
   return {
-    id: `picovoice-${p.id}`,
+    id: `picavoice-${p.id}`,
     name: p.display_name,
     autoName: false,
     notes: p.notes ?? "",
@@ -100,7 +100,7 @@ export function toGardenProfile(p: PersonDetail): GardenProfile {
     quotes,
     facts,
     kw,
-    source: "picovoice",
+    source: "picavoice",
   }
 }
 

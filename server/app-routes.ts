@@ -1,5 +1,5 @@
 /**
- * PICoVoice phone app, served by the ingest server on the same port.
+ * Picavoice phone app, served by the ingest server on the same port.
  *
  *   GET    /app                  the app (server/app/index.html), open it on the phone
  *   GET    /app/<file>           its static files (server/app/)
@@ -49,7 +49,7 @@ export async function appRoute(req: Request, url: URL, people: People): Promise<
       const all = people.list().map((p) => people.get(p.id)).filter((p) => p !== null)
       const day = new Date().toISOString().slice(0, 10)
       return new Response(JSON.stringify(toGardenExport(all), null, 2), {
-        headers: {"content-type": "application/json", "cache-control": "no-store", "content-disposition": `attachment; filename="picovoice-garden-${day}.json"`},
+        headers: {"content-type": "application/json", "cache-control": "no-store", "content-disposition": `attachment; filename="picavoice-garden-${day}.json"`},
       })
     }
 

@@ -1,7 +1,7 @@
-# PICoVoice: remember everyone you meet, from your smart glasses
+# Picavoice: remember everyone you meet, from your smart glasses
 
 At a crowded event you meet dozens of people and forget most of them by the next
-morning. **PICoVoice** listens through Mentra Live glasses, works out who is
+morning. **Picavoice** listens through Mentra Live glasses, works out who is
 speaking, and, with each person's spoken OK, keeps a **Mind Palace**: who they
 are, where you met, and what they said. When they speak again, your phone shows
 who it is and what they told you last time. **Voice Garden**, the example
@@ -12,7 +12,7 @@ their heads in a webcam AR mirror.
 Mentra Live glasses ─► phone miniapp ─► Mac server (bun run ingest)
   mics, speaker          raw PCM over      ├─ Deepgram nova-3: transcript + speaker labels (S0, S1, …)
                          HTTP              ├─ SQLite: sessions, utterances, people, consent
-                                           ├─ /app     PICoVoice: Live · Mind Palace · profiles · consent
+                                           ├─ /app     Picavoice: Live · Mind Palace · profiles · consent
                                            ├─ /garden  Voice Garden: a tree per person, grows as they talk
                                            └─ /dashboard  raw live transcript
 XR-Voice-Profiles/ (Python): names speakers across conversations from saved voiceprints
@@ -21,7 +21,7 @@ XR-Voice-Profiles/ (Python): names speakers across conversations from saved voic
 | Piece | Where | State |
 | --- | --- | --- |
 | Glasses → phone → Mac audio, speaker-labelled transcript | `src/`, `server/ingest.ts`, `server/deepgram.ts` | Working |
-| PICoVoice app: Live, Mind Palace, profiles, consent, delete | `server/app/`, `server/people.ts` | Working |
+| Picavoice app: Live, Mind Palace, profiles, consent, delete | `server/app/`, `server/people.ts` | Working |
 | Voice Garden example (based on Voiceprint Garden AR by Ibrahim Kamran) | `examples/voice-garden/` | Working |
 | Recognise a returning voice automatically | `XR-Voice-Profiles/` | Prototype |
 | Spoken replies through the glasses' speaker | `session.speaker.speak` | Next |
@@ -222,12 +222,12 @@ ready. Per the SDK types, disabling VAD keeps audio frames flowing and the loudn
 miniapp disconnects; whether the phone honoured each call shows in the log as `glasses VAD gating disabled` /
 `loudness gate disabled` or `could not disable ...`.
 
-## PICoVoice phone app (Mind Palace) and live transcript
+## Picavoice phone app (Mind Palace) and live transcript
 
 The ingest server also serves two pages for your phone. Open them in Safari on a
 phone on the same Wi-Fi as the Mac:
 
-- `http://<mac-ip>:3100/app`: **PICoVoice**. Welcome and setup screens, the
+- `http://<mac-ip>:3100/app`: **Picavoice**. Welcome and setup screens, the
   Mind Palace (everyone you met), a profile for each person, a form to save a
   new voice with their spoken consent, and a Live screen that shows who is
   speaking in the newest conversation, what they said, and what they said last
@@ -265,10 +265,10 @@ reset each session, so that needs voice embeddings in the `voiceprints` table.
 **Voice Garden (example project).** Open `/garden` from the same server. Everyone
 in the Mind Palace is planted as a tree and kept in sync; what they say through the
 glasses grows their tree and floats their words up from it; deleting someone in
-PICoVoice removes their tree. Camera and mic (AR mirror) need a secure page, so use
+Picavoice removes their tree. Camera and mic (AR mirror) need a secure page, so use
 `http://localhost:3100/garden` in Chrome on the Mac; on the phone the 3D garden
 still grows live. Based on [Voiceprint Garden AR](https://github.com/ibrahimakamran/Memory-Garden)
-by Ibrahim Kamran; the PICoVoice bridge is the marked block at the end of its script.
+by Ibrahim Kamran; the Picavoice bridge is the marked block at the end of its script.
 `GET /api/garden.json` is also importable into the hosted original.
 
 API: `GET /api/people`, `GET /api/people/:id`, `POST /api/people`,
@@ -348,10 +348,10 @@ fieldassist/
 ├── server/deepgram.ts        # Deepgram live stream + diarization (segments per speaker)
 ├── server/store.ts           # SQLite: sessions, utterances, events (+ people/voiceprints/speaker_assignments tables)
 ├── server/people.ts          # Mind Palace: people, consent, speaker-label links, live speakers
-├── server/app-routes.ts      # GET /app (PICoVoice phone app) + /api/people, /api/assign, /api/live, /api/garden.json
+├── server/app-routes.ts      # GET /app (Picavoice phone app) + /api/people, /api/assign, /api/live, /api/garden.json
 ├── server/garden.ts          # people as Voice Garden trees (/api/garden.json)
 ├── examples/voice-garden/    # Voice Garden example, served at /garden (based on Voiceprint Garden AR, Ibrahim Kamran)
-├── server/app/               # the PICoVoice app page and its photo
+├── server/app/               # the Picavoice app page and its photo
 ├── server/dashboard.ts       # GET /dashboard (live transcript) + /api/sessions
 ├── scripts/seed-demo.ts      # `bun run seed [--live] [--names]`: fake conversations for testing without glasses
 ├── scripts/replay-audio.ts   # `bun run replay <file>`: play a recording into the server as if from the phone

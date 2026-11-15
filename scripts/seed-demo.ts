@@ -4,7 +4,7 @@
  *
  *   bun run seed            one finished conversation, written at once
  *   bun run seed --live     a "live" conversation: one new line every 2 s
- *   bun run seed --names    also save S1 as "Maya Chen" in the Mind Palace (PICoVoice app)
+ *   bun run seed --names    also save S1 as "Maya Chen" in the Mind Palace (Picavoice app)
  *
  * Uses the same database as the ingest server (FIELDASSIST_DB, default
  * data/fieldassist.sqlite). Runs alongside `bun run ingest`; SQLite handles both.

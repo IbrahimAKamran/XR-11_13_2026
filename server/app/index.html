@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#121317">
-<title>PICoVoice</title>
+<title>Picavoice</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -154,7 +154,7 @@
     store.set("pv.welcomed", "1");
     return h("div", {class: "screen bare"},
       h("div", {class: "hero"}, h("img", {src: "/app/glasses.jpg", alt: "Smart glasses on a desk under a glowing sound-wave light"})),
-      h("div", {class: "eyebrow", style: {marginTop: "18px"}}, "PICoVoice"),
+      h("div", {class: "eyebrow", style: {marginTop: "18px"}}, "Picavoice"),
       h("h1", {style: {fontSize: "40px"}}, "Never miss a word in the crowd"),
       h("div", {class: "rule"}, h("span"), h("span")),
       h("p", {style: {color: "var(--soft)", fontSize: "17px"}}, "Know who’s speaking, what they said and where you met. Your glasses whisper it in your ear, and your phone keeps it all."),
@@ -170,10 +170,10 @@
       h("div", {class: "grow"}, h("h2", null, title), h("p", {class: "muted small", style: {fontSize: "14px"}}, text)));
     return h("div", {class: "screen"},
       back("#/", "Back"),
-      h("h1", null, "How PICoVoice hears the room"),
+      h("h1", null, "How Picavoice hears the room"),
       h("ol", {class: "steps"},
-        step("mic", "#5ed1c1", "#17302e", "Straight from the glasses’ mics", "Your glasses stream raw microphone audio from Mentra’s audio feed straight to PICoVoice. No phone held up, no recording app."),
-        step("people", "#e8b730", "#3a2f12", "Every voice gets a label and a profile", "PICoVoice labels who is speaking. Save a voice once and “Speaker 2” becomes Maya."),
+        step("mic", "#5ed1c1", "#17302e", "Straight from the glasses’ mics", "Your glasses stream raw microphone audio from Mentra’s audio feed straight to Picavoice. No phone held up, no recording app."),
+        step("people", "#e8b730", "#3a2f12", "Every voice gets a label and a profile", "Picavoice labels who is speaking. Save a voice once and “Speaker 2” becomes Maya."),
         step("speaker", "#8db4ff", "#1e2a44", "Your own voice stands out", "You’re closer to the mics, so your voice is louder than anyone else’s. Check it on the Live screen: you should show up as one steady speaker.")),
       h("a", {class: "btn ghost", href: "#/live"}, "Open Live to test"),
       h("a", {class: "btn", href: "#/people"}, "Open my Mind Palace"),
@@ -201,7 +201,7 @@
     render();
     put(screen, 
       h("div", {class: "between", style: {alignItems: "flex-end"}},
-        h("div", null, h("div", {class: "eyebrow"}, "PICoVoice"), h("h1", null, "Mind Palace")),
+        h("div", null, h("div", {class: "eyebrow"}, "Picavoice"), h("h1", null, "Mind Palace")),
         h("a", {class: "chip", href: "#/garden", style: {display: "inline-flex", alignItems: "center", gap: "6px", textDecoration: "none", color: "var(--ink)"}}, svg(ICON.tree, "currentColor", 16), "Garden view")),
       h("p", {class: "muted small"}, plural(people.length, "person").replace("persons", "people") + " in your Mind Palace"),
       h("label", {class: "search"}, svg(ICON.search, "#a9aeb8", 18), h("span", {class: "visually-hidden"}, "Search people"),
@@ -235,7 +235,7 @@
             h("div", {class: "between"}, h("h2", null, "Voice profile"), voicePill(p)),
             h("div", {class: "bar", role: "img", "aria-label": pct + "% of the speech needed"}, h("span", {style: {width: pct + "%"}})),
             h("div", {class: "between muted small"}, h("span", null, Math.round(p.speech_seconds) + " s of speech collected"), h("span", null, "Heard in " + plural(p.talks, "conversation"))))
-        : h("section", {class: "card dashed"}, h("h2", null, "No voice profile"), h("p", {class: "muted small"}, "They chose name only. PICoVoice won’t link their voice.")),
+        : h("section", {class: "card dashed"}, h("h2", null, "No voice profile"), h("p", {class: "muted small"}, "They chose name only. Picavoice won’t link their voice.")),
       h("section", {class: "card"}, h("h2", null, "Things " + p.display_name.split(" ")[0] + " said"),
         p.quotes.length ? p.quotes.map((qq, i) => h("div", {style: {display: "flex", flexDirection: "column", gap: "2px", paddingTop: i ? "10px" : "0", borderTop: i ? "1px solid var(--line)" : "0"}},
           h("span", null, "“" + qq.text + "”"))) : h("p", {class: "muted small"}, "Nothing yet. Lines appear here once their voice is linked in a conversation.")),

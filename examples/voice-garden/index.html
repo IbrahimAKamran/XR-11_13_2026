@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <!--
-  Voice Garden: the example project for PICoVoice.
+  Voice Garden: the example project for Picavoice.
   Original app: Voiceprint Garden AR by Ibrahim Kamran,
   https://github.com/ibrahimakamran/Memory-Garden (https://ibrahimakamran.github.io/Memory-Garden/).
-  Copied here with the title changed and one addition: the "PICoVoice bridge" block at the end of
-  the main script. Served by the PICoVoice server at /garden, that block plants a tree for everyone
+  Copied here with the title changed and one addition: the "Picavoice bridge" block at the end of
+  the main script. Served by the Picavoice server at /garden, that block plants a tree for everyone
   in the Mind Palace and grows their tree from what they say through the glasses.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Voice Garden — a PICoVoice example</title>
+<title>Voice Garden — a Picavoice example</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root { --bg: rgba(10,16,32,.84); --line: rgba(160,200,255,.18); --txt:#e8f0ff; --dim:#9fb0cc; --acc:#9dffb8; }
@@ -87,7 +87,7 @@
 <div id="hud">
   <h1>🌱 Voice Garden <span style="font-size:12px;color:#9dffb8">AR</span></h1>
   <div class="sub">Your voice, made visible. Talk → grow. Laugh → bloom.</div>
-  <div class="row" id="pvRow" style="display:none"><span class="k">PICoVoice:</span> <span id="pvStatus">—</span></div>
+  <div class="row" id="pvRow" style="display:none"><span class="k">Picavoice:</span> <span id="pvStatus">—</span></div>
   <div class="row">
     <button id="btnGarden" class="on">🌳 Garden</button>
     <button id="btnMirror">🪞 AR mirror (M)</button>
@@ -1488,17 +1488,17 @@ renderer.setAnimationLoop((time, frame) => {
 window.garden = { state, plants, engine, faceTracker, CFG, addDemo, addManualTree, triggerBloom, setMode };
 
 /* =====================================================================
-   PICoVoice bridge (added for the PICoVoice example; not in the original)
-   When this page is served by the PICoVoice server (bun run ingest -> /garden):
+   Picavoice bridge (added for the Picavoice example; not in the original)
+   When this page is served by the Picavoice server (bun run ingest -> /garden):
    - everyone in the Mind Palace gets a tree (GET /api/garden.json), and
-     leaves the garden when they are deleted in PICoVoice;
+     leaves the garden when they are deleted in Picavoice;
    - what they say through the glasses grows their tree, adds their quotes
      and facts, and floats their words (GET /api/live + transcript lines).
    On any other host (e.g. GitHub Pages) /api/live is missing and this does nothing.
    ===================================================================== */
 const PV = { on: false, run: null, after: 0, first: true, busy: false, seen: new Set() };
-try { PV.seen = new Set(JSON.parse(localStorage.getItem('picovoice-seen') || '[]')); } catch (_) { }
-const pvSaveSeen = () => { try { localStorage.setItem('picovoice-seen', JSON.stringify([...PV.seen])); } catch (_) { } };
+try { PV.seen = new Set(JSON.parse(localStorage.getItem('picavoice-seen') || '[]')); } catch (_) { }
+const pvSaveSeen = () => { try { localStorage.setItem('picavoice-seen', JSON.stringify([...PV.seen])); } catch (_) { } };
 async function pvGet(path) { const r = await fetch(path, { cache: 'no-store' }); if (!r.ok) throw new Error(path + ' ' + r.status); return r.json(); }
 function pvStatus(txt) { $('pvRow').style.display = ''; $('pvStatus').textContent = txt; }
 async function pvSyncPeople() {
@@ -1508,7 +1508,7 @@ async function pvSyncPeople() {
   for (const p of profiles) {
     const have = profileById(p.id);
     if (have) {
-      // Keep the garden's own growth, quotes and shape; take name, notes and facts from PICoVoice.
+      // Keep the garden's own growth, quotes and shape; take name, notes and facts from Picavoice.
       let changed = false;
       if (have.name !== p.name) { have.name = p.name; changed = true; }
       if (p.notes && have.notes !== p.notes) { have.notes = p.notes; changed = true; }
@@ -1521,9 +1521,9 @@ async function pvSyncPeople() {
     if (PV.seen.has(p.id)) continue;   // removed in the garden on purpose: don't bring it back
     p.slot = nextSlot(); state.profiles.push(p); addPlant(p); PV.seen.add(p.id); added++;
   }
-  // "Delete my voice and data" in PICoVoice removes their tree here too.
-  for (const p of [...state.profiles]) if (p.source === 'picovoice' && !ids.has(p.id)) deleteProfile(p);
-  if (added) { pvSaveSeen(); refreshPinSelect(); save(); toast(`🌱 ${added} ${added === 1 ? 'person' : 'people'} from PICoVoice`); }
+  // "Delete my voice and data" in Picavoice removes their tree here too.
+  for (const p of [...state.profiles]) if (p.source === 'picavoice' && !ids.has(p.id)) deleteProfile(p);
+  if (added) { pvSaveSeen(); refreshPinSelect(); save(); toast(`🌱 ${added} ${added === 1 ? 'person' : 'people'} from Picavoice`); }
 }
 async function pvPollSpeech() {
   const { live } = await pvGet('/api/live');
@@ -1535,7 +1535,7 @@ async function pvPollSpeech() {
   if (PV.first) { PV.first = false; } else {
     for (const u of utterances) {
       if (!u.speech_final || !u.text) continue;
-      const p = u.person_id ? profileById('picovoice-' + u.person_id) : null;
+      const p = u.person_id ? profileById('picavoice-' + u.person_id) : null;
       if (!p) { logLine('Glasses · Speaker ' + String(u.speaker_label).replace(/^S/, ''), u.text); continue; }
       p.talkSec += Math.max(0, u.t_end - u.t_start);
       addUtterance(p, u.text);
@@ -1546,7 +1546,7 @@ async function pvPollSpeech() {
 async function pvTick() {
   if (PV.busy) return; PV.busy = true;
   try { await pvSyncPeople(); await pvPollSpeech(); PV.on = true; }
-  catch (e) { if (PV.on) pvStatus('lost connection to the PICoVoice server'); }
+  catch (e) { if (PV.on) pvStatus('lost connection to the Picavoice server'); }
   finally { PV.busy = false; }
 }
 fetch('/api/live', { cache: 'no-store' }).then(r => { if (r.ok) { pvStatus('connecting…'); pvTick(); setInterval(pvTick, 2500); } }).catch(() => { });
