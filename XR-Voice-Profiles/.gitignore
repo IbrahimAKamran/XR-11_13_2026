@@ -1,0 +1,7 @@
+profiles.json
+voice_model/
+recordings/
+.venv/
+.venv311/
+__pycache__/
+.vscode/
