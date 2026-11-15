@@ -9,8 +9,10 @@
  *   DELETE /api/people/:id       delete a person and their voice data
  *   POST   /api/assign           {runId, speakerLabel, personId}
  *   GET    /api/live             the newest session and who is speaking in it
+ *   GET    /api/garden.json      everyone as a Memory Garden import file (server/garden.ts)
  */
 import {join, normalize} from "node:path"
+import {toGardenExport} from "./garden"
 import {People, READY_SECONDS} from "./people"
 
 const APP_DIR = join(import.meta.dir, "app")
@@ -33,11 +35,18 @@ export async function appRoute(req: Request, url: URL, people: People): Promise<
     return new Response(f, {headers: {"content-type": TYPES[ext] ?? "application/octet-stream", "cache-control": "no-store"}})
   }
 
-  if (!path.startsWith("/api/people") && path !== "/api/assign" && path !== "/api/live") return null
+  if (!path.startsWith("/api/people") && path !== "/api/assign" && path !== "/api/live" && path !== "/api/garden.json") return null
 
   try {
     if (req.method === "GET" && path === "/api/people") return json({people: people.list(), readySeconds: READY_SECONDS})
     if (req.method === "GET" && path === "/api/live") return json({live: people.live()})
+    if (req.method === "GET" && path === "/api/garden.json") {
+      const all = people.list().map((p) => people.get(p.id)).filter((p) => p !== null)
+      const day = new Date().toISOString().slice(0, 10)
+      return new Response(JSON.stringify(toGardenExport(all), null, 2), {
+        headers: {"content-type": "application/json", "cache-control": "no-store", "content-disposition": `attachment; filename="picovoice-garden-${day}.json"`},
+      })
+    }
 
     const m = path.match(/^\/api\/people\/(\d+)$/)
     if (m && req.method === "GET") {

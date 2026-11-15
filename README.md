@@ -224,8 +224,16 @@ Deleting a person removes their profile, voice links and the lines they said.
 Not yet: recognising a voice automatically in a new conversation. Speaker labels
 reset each session, so that needs voice embeddings in the `voiceprints` table.
 
+**Memory Garden.** [Memory Garden](https://ibrahimakamran.github.io/Memory-Garden/)
+grows a 3D tree for each person beside their head in a webcam AR mirror. The
+app's welcome screen and the Mind Palace's "Garden view" lead there:
+`GET /api/garden.json` downloads everyone as a Memory Garden file, which you load
+with its ⬆ Import button on the laptop. Trees keep their facts and quotes, and the
+same person always grows the same tree (shape from a hash, since PICoVoice has no
+voice features to give the garden yet). Link faces in the garden itself.
+
 API: `GET /api/people`, `GET /api/people/:id`, `POST /api/people`,
-`DELETE /api/people/:id`, `POST /api/assign`, `GET /api/live`,
+`DELETE /api/people/:id`, `POST /api/assign`, `GET /api/live`, `GET /api/garden.json`,
 `GET /api/sessions`, `GET /api/sessions/:runId/utterances?after=N`.
 
 ## Verification checklist
@@ -301,7 +309,8 @@ fieldassist/
 ├── server/deepgram.ts        # Deepgram live stream + diarization (segments per speaker)
 ├── server/store.ts           # SQLite: sessions, utterances, events (+ people/voiceprints/speaker_assignments tables)
 ├── server/people.ts          # Mind Palace: people, consent, speaker-label links, live speakers
-├── server/app-routes.ts      # GET /app (PICoVoice phone app) + /api/people, /api/assign, /api/live
+├── server/app-routes.ts      # GET /app (PICoVoice phone app) + /api/people, /api/assign, /api/live, /api/garden.json
+├── server/garden.ts          # export people as a Memory Garden import file
 ├── server/app/               # the PICoVoice app page and its photo
 ├── server/dashboard.ts       # GET /dashboard (live transcript) + /api/sessions
 ├── scripts/seed-demo.ts      # `bun run seed [--live] [--names]`: fake conversations for testing without glasses

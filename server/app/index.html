@@ -112,6 +112,7 @@
     search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><path d="M17 5.5a3 3 0 010 5M20 20a5.5 5.5 0 00-3.5-5.1"/>',
+    tree: '<path d="M12 22v-7"/><path d="M12 15c-4 0-7-2.5-7-6a7 7 0 0114 0c0 3.5-3 6-7 6z"/><path d="M9 18l3-3 3 3"/>',
     speaker: '<path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/><path d="M19 5a10 10 0 010 14"/>',
   };
 
@@ -159,6 +160,7 @@
       h("p", {style: {color: "var(--soft)", fontSize: "17px"}}, "Know who’s speaking, what they said and where you met. Your glasses whisper it in your ear, and your phone keeps it all."),
       h("div", {style: {flex: "1"}}),
       h("a", {class: "btn", href: "#/how"}, "Get started"),
+      h("a", {class: "btn ghost", href: "#/garden"}, svg(ICON.tree, "currentColor", 20), "Walk the Memory Garden"),
       h("a", {class: "btn ghost", href: "#/people", style: {border: "0"}}, "I’ve set this up before"));
   }
 
@@ -200,7 +202,8 @@
     put(screen, 
       h("div", {class: "between", style: {alignItems: "flex-end"}},
         h("div", null, h("div", {class: "eyebrow"}, "PICoVoice"), h("h1", null, "Mind Palace")),
-        h("span", {class: "muted small"}, plural(people.length, "person").replace("persons", "people"))),
+        h("a", {class: "chip", href: "#/garden", style: {display: "inline-flex", alignItems: "center", gap: "6px", textDecoration: "none", color: "var(--ink)"}}, svg(ICON.tree, "currentColor", 16), "Garden view")),
+      h("p", {class: "muted small"}, plural(people.length, "person").replace("persons", "people") + " in your Mind Palace"),
       h("label", {class: "search"}, svg(ICON.search, "#a9aeb8", 18), h("span", {class: "visually-hidden"}, "Search people"),
         h("input", {type: "search", placeholder: "Search names, topics, where you met", oninput: (e) => { q = e.target.value; render(); }})),
       list,
@@ -356,6 +359,29 @@
     timer = setInterval(tick, 2000);
   }
 
+  const GARDEN_URL = "https://ibrahimakamran.github.io/Memory-Garden/";
+  async function GardenScreen(screen) {
+    let count = 0;
+    try { count = (await api("/api/people")).people.length; } catch {}
+    const step = (n, title, text, action) => h("li", {class: "card row"},
+      h("span", {class: "icon", style: {background: "#3a2f12", color: "var(--gold)", fontWeight: "700"}}, String(n)),
+      h("div", {class: "grow", style: {display: "flex", flexDirection: "column", gap: "8px"}},
+        h("h2", null, title), h("p", {class: "muted", style: {fontSize: "14px"}}, text), action));
+    put(screen,
+      back("#/people", "Mind Palace"),
+      h("div", {class: "eyebrow"}, "PICoVoice × Memory Garden"),
+      h("h1", null, "Everyone you met, grown into a garden"),
+      h("p", {style: {color: "var(--soft)"}}, "Memory Garden turns each person into a tree that grows beside their head in a webcam AR mirror, with a card of what you know about them. Bring your Mind Palace into it."),
+      h("ol", {class: "steps"},
+        step(1, "Download your garden file", count ? plural(count, "person").replace("persons", "people") + " from your Mind Palace, with their facts and what they said." : "Your Mind Palace is empty. Save someone first, or try the garden’s own demo trees.",
+          count ? h("a", {class: "btn sm", href: "/api/garden.json", download: "", style: {alignSelf: "flex-start"}}, "Download picovoice-garden.json") : null),
+        step(2, "Open Memory Garden on the laptop", "It needs Chrome or Edge with a webcam and mic, so open it on the laptop rather than this phone.",
+          h("a", {class: "btn sm ghost", href: GARDEN_URL, target: "_blank", rel: "noopener", style: {alignSelf: "flex-start"}}, "Open Memory Garden")),
+        step(3, "Import, then link faces", "Click ⬆ Import and pick the file. Each person appears as a tree. Turn on the AR mirror, and when they step in front of the camera, use “Link face in view” on their tree.", null)),
+      h("p", {class: "muted small"}, "Memory Garden keeps everything in that browser. Import again after you meet more people; people already in the garden are skipped."),
+      tabs("people"));
+  }
+
   // ---- router -------------------------------------------------------------------------------------
   async function route() {
     if (timer) { clearInterval(timer); timer = null; }
@@ -372,6 +398,7 @@
       else if (path.startsWith("/person/")) await PersonScreen(screen, Number(path.split("/")[2]));
       else if (path === "/enroll") await EnrollScreen(screen, params);
       else if (path === "/live") await LiveScreen(screen);
+      else if (path === "/garden") await GardenScreen(screen);
       else { location.hash = "#/people"; }
     } catch (e) {
       screen.replaceChildren(back("#/people", "Mind Palace"), h("h1", null, "Something went wrong"),

@@ -120,3 +120,34 @@ describe("app routes", () => {
     expect((await call(people, "GET", "/dashboard")).status).toBe(0)
   })
 })
+
+describe("memory garden export", () => {
+  test("exports everyone as importable trees, stable across calls", async () => {
+    const {people} = setup()
+    people.create({name: "Maya Chen", role: "Product designer", metAt: "Demo booth", voiceConsent: true, runId: "r1", speakerLabel: "S1"})
+    people.create({name: "Priya", notes: "Met in the coffee line", voiceConsent: false})
+    const get = async () => {
+      const req = new Request("http://localhost/api/garden.json")
+      const res = (await appRoute(req, new URL(req.url), people))!
+      expect(res.headers.get("content-disposition")).toContain("picovoice-garden-")
+      return (await res.json()) as {v: number; profiles: any[]}
+    }
+    const a = await get()
+    expect(a.v).toBe(1)
+    const maya = a.profiles.find((p) => p.name === "Maya Chen")
+    expect(maya.id).toMatch(/^picovoice-\d+$/)
+    expect(maya.genome).toHaveLength(10)
+    expect(maya.u).toHaveLength(14)
+    expect(maya.genome.every((g: number) => g >= 0 && g <= 1)).toBe(true)
+    expect(maya.genomeEdited).toBe(true)
+    expect(maya.facts).toEqual({role: ["Product designer"], other: ["met: Demo booth"]})
+    expect(maya.quotes.map((q: any) => q.text)).toContain("Onboarding should start with a short voice tutorial.")
+    expect(maya.talkSec).toBe(60)
+    const priya = a.profiles.find((p) => p.name === "Priya")
+    expect(priya.notes).toBe("Met in the coffee line")
+    expect(priya.facts.other).toContain("name only, no voice saved")
+    const b = await get()
+    expect(b.profiles.map((p) => [p.id, p.seed, p.genome])).toEqual(a.profiles.map((p) => [p.id, p.seed, p.genome]))
+    expect(maya.seed).not.toBe(priya.seed)
+  })
+})
