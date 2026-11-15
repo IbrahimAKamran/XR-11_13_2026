@@ -1,4 +1,42 @@
-# FieldAssist — live transcripts and raw audio from Mentra Live to your Mac
+# Picavoice: remember everyone you meet, from your smart glasses
+
+At a crowded event you meet dozens of people and forget most of them by the next
+morning. **Picavoice** listens through Mentra Live glasses, works out who is
+speaking, and, with each person's spoken OK, keeps a **Mind Palace**: who they
+are, where you met, and what they said. When they speak again, your phone shows
+who it is and what they told you last time. **Voice Garden**, the example
+project, turns the same people into trees that grow as they talk and stand beside
+their heads in a webcam AR mirror.
+
+```
+Mentra Live glasses ─► phone miniapp ─► Mac server (bun run ingest)
+  mics, speaker          raw PCM over      ├─ Deepgram nova-3: transcript + speaker labels (S0, S1, …)
+                         HTTP              ├─ SQLite: sessions, utterances, people, consent
+                                           ├─ /app     Picavoice: Live · Mind Palace · profiles · consent
+                                           ├─ /garden  Voice Garden: a tree per person, grows as they talk
+                                           └─ /dashboard  raw live transcript
+XR-Voice-Profiles/ (Python): names speakers across conversations from saved voiceprints
+```
+
+| Piece | Where | State |
+| --- | --- | --- |
+| Glasses → phone → Mac audio, speaker-labelled transcript | `src/`, `server/ingest.ts`, `server/deepgram.ts` | Working |
+| Picavoice app: Live, Mind Palace, profiles, consent, delete | `server/app/`, `server/people.ts` | Working |
+| Voice Garden example (based on Voiceprint Garden AR by Ibrahim Kamran) | `examples/voice-garden/` | Working |
+| Recognise a returning voice automatically | `XR-Voice-Profiles/` | Prototype |
+| Spoken replies through the glasses' speaker | `session.speaker.speak` | Next |
+
+**Demo without glasses:** `bun install`, `bun run ingest`, then `bun run seed --names` or
+`bun run replay <recording.m4a>`. Open `http://<mac-ip>:3100/app` on a phone and
+`http://localhost:3100/garden` on the Mac.
+
+**Consent and privacy:** nothing is linked to a person until they say yes; "Name
+only" people are never matched by voice; deleting someone removes their profile,
+voice links, transcript lines and Voice Garden tree. Everything stays on the Mac.
+
+---
+
+## Capture pipeline (FieldAssist)
 
 A MentraOS **miniapp** for Mentra Live glasses. The glasses talk to the phone over Bluetooth, the
 Mentra App runs this miniapp's background code on the phone, and two things come back to your Mac:
@@ -184,6 +222,59 @@ ready. Per the SDK types, disabling VAD keeps audio frames flowing and the loudn
 miniapp disconnects; whether the phone honoured each call shows in the log as `glasses VAD gating disabled` /
 `loudness gate disabled` or `could not disable ...`.
 
+## Picavoice phone app (Mind Palace) and live transcript
+
+The ingest server also serves two pages for your phone. Open them in Safari on a
+phone on the same Wi-Fi as the Mac:
+
+- `http://<mac-ip>:3100/app`: **Picavoice**. Welcome and setup screens, the
+  Mind Palace (everyone you met), a profile for each person, a form to save a
+  new voice with their spoken consent, and a Live screen that shows who is
+  speaking in the newest conversation, what they said, and what they said last
+  time.
+- `http://<mac-ip>:3100/dashboard`: the raw live transcript, coloured by speaker.
+
+Both poll over plain HTTP every 2 s (WebSockets from the iPhone fail, see
+Troubleshooting). Find the Mac's IP with `ipconfig getifaddr en0`.
+
+Try them without the glasses:
+
+```bash
+bun run ingest                 # terminal 1
+bun run seed --names           # terminal 2: a finished conversation, S1 saved as "Maya Chen"
+bun run seed --live            # or: a new line every 2 s, to watch Live update
+bun run replay ~/Downloads/conversation.m4a   # or: play a real recording in, like the phone does
+```
+
+`bun run replay <file> [more files] [--fast] [--url http://<mac-ip>:3100]` sends
+any audio file ffmpeg can read (voice memos, WAV, MP3) through the full
+pipeline: WAV recording, Deepgram speaker labels (when `DEEPGRAM_API_KEY` is
+set), SQLite, `/dashboard` and `/app`. Each file becomes its own conversation.
+Leave `--fast` off when Deepgram is on, so it streams at real-time speed.
+
+How voices become people: on the Live screen an unknown voice shows as
+"New voice · Speaker N". **Save** opens the form; if they say yes to a voice
+profile, that speaker label is linked to them (`people` + `speaker_assignments`).
+In a later conversation, pick them from "That's someone I've met…" to add to
+their history. People who choose **Name only** are never linked to a voice.
+Deleting a person removes their profile, voice links and the lines they said.
+
+Not yet: recognising a voice automatically in a new conversation. Speaker labels
+reset each session, so that needs voice embeddings in the `voiceprints` table.
+
+**Voice Garden (example project).** Open `/garden` from the same server. Everyone
+in the Mind Palace is planted as a tree and kept in sync; what they say through the
+glasses grows their tree and floats their words up from it; deleting someone in
+Picavoice removes their tree. Camera and mic (AR mirror) need a secure page, so use
+`http://localhost:3100/garden` in Chrome on the Mac; on the phone the 3D garden
+still grows live. Based on [Voiceprint Garden AR](https://github.com/ibrahimakamran/Memory-Garden)
+by Ibrahim Kamran; the Picavoice bridge is the marked block at the end of its script.
+`GET /api/garden.json` is also importable into the hosted original.
+
+API: `GET /api/people`, `GET /api/people/:id`, `POST /api/people`,
+`DELETE /api/people/:id`, `POST /api/assign`, `GET /api/live`, `GET /api/garden.json`,
+`GET /api/sessions`, `GET /api/sessions/:runId/utterances?after=N`.
+
 ## Verification checklist
 
 1. `./run.sh` prints `[ingest] listening on http://0.0.0.0:3100/ingest` and `sidecar listening on :3001` (or the
@@ -255,10 +346,18 @@ fieldassist/
 ├── src/ui/                   # tiny status page shown when the tile is opened
 ├── server/ingest.ts          # runs on the Mac: HTTP receiver, prints transcripts/stats, writes recordings, drives the transcriber
 ├── server/deepgram.ts        # Deepgram live stream + diarization (segments per speaker)
-├── server/store.ts           # SQLite: sessions, utterances, events (+ empty people/voiceprints tables)
+├── server/store.ts           # SQLite: sessions, utterances, events (+ people/voiceprints/speaker_assignments tables)
+├── server/people.ts          # Mind Palace: people, consent, speaker-label links, live speakers
+├── server/app-routes.ts      # GET /app (Picavoice phone app) + /api/people, /api/assign, /api/live, /api/garden.json
+├── server/garden.ts          # people as Voice Garden trees (/api/garden.json)
+├── examples/voice-garden/    # Voice Garden example, served at /garden (based on Voiceprint Garden AR, Ibrahim Kamran)
+├── server/app/               # the Picavoice app page and its photo
+├── server/dashboard.ts       # GET /dashboard (live transcript) + /api/sessions
+├── scripts/seed-demo.ts      # `bun run seed [--live] [--names]`: fake conversations for testing without glasses
+├── scripts/replay-audio.ts   # `bun run replay <file>`: play a recording into the server as if from the phone
 ├── data/fieldassist.sqlite   # created on first run (git-ignored)
 ├── server/wav.ts             # 16-bit PCM WAV writer (header patched on every write)
-└── server/*.test.ts          # `bun test` (WAV writer, Deepgram segment parser, store)
+└── server/*.test.ts          # `bun test` (WAV writer, Deepgram segment parser, store, dashboard, people + app routes)
 ```
 
 Versions: `@mentra/miniapp` 3.4.0 (npm `latest`), `@mentra/miniapp-cli` 0.1.0-dev.2 (npm `dev` tag; it

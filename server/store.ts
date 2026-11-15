@@ -18,6 +18,26 @@ export interface UtteranceRow {
   provider: string
 }
 
+export interface SessionSummary {
+  run_id: string
+  phone_run_id: string | null
+  started_at: number
+  ended_at: number | null
+  end_reason: string | null
+  utterance_count: number
+}
+
+export interface DashboardUtterance {
+  id: number
+  t_start: number
+  t_end: number
+  speaker_label: string
+  text: string
+  speech_final: number
+  person_id: number | null
+  person_name: string | null
+}
+
 export class Store {
   readonly db: Database
 
@@ -83,6 +103,34 @@ export class Store {
     return this.db
       .query(`SELECT t_start, t_end, speaker_label, text FROM utterances WHERE run_id = ? ORDER BY t_start`)
       .all(runId) as Array<{t_start: number; t_end: number; speaker_label: string; text: string}>
+  }
+
+  /** Newest sessions first, with an utterance count, for the dashboard. */
+  listSessions(limit = 50): SessionSummary[] {
+    return this.db
+      .query(
+        `SELECT s.run_id, s.phone_run_id, s.started_at, s.ended_at, s.end_reason,
+                (SELECT COUNT(*) FROM utterances u WHERE u.run_id = s.run_id) AS utterance_count
+         FROM sessions s ORDER BY s.started_at DESC LIMIT ?`,
+      )
+      .all(limit) as SessionSummary[]
+  }
+
+  /**
+   * Utterances of one run with id > afterId, oldest first, so a polling client
+   * only fetches what is new. person_name is filled once a speaker label has
+   * been assigned to a person (speaker_assignments), otherwise null.
+   */
+  utterancesSince(runId: string, afterId = 0, limit = 500): DashboardUtterance[] {
+    return this.db
+      .query(
+        `SELECT u.id, u.t_start, u.t_end, u.speaker_label, u.text, u.speech_final, a.person_id, p.display_name AS person_name
+         FROM utterances u
+         LEFT JOIN speaker_assignments a ON a.run_id = u.run_id AND a.speaker_label = u.speaker_label
+         LEFT JOIN people p ON p.id = a.person_id
+         WHERE u.run_id = ? AND u.id > ? ORDER BY u.id LIMIT ?`,
+      )
+      .all(runId, afterId, limit) as DashboardUtterance[]
   }
 
   countUtterances(runId: string): number {

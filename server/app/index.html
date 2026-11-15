@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121317">
+<title>Picavoice</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #121317; --card: #1c1e24; --card2: #24272f; --line: #2e323b; --line2: #3a3e48;
+    --ink: #ecedef; --soft: #d5d8de; --muted: #a9aeb8; --gold: #e8b730; --gold2: #f3cc5c;
+    --teal: #2a9d8f; --teal2: #5ed1c1; --tealbg: #17302e; --red: #f87171;
+    --serif: Fraunces, Georgia, serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 Inter, -apple-system, system-ui, sans-serif; }
+  a { color: var(--gold); }
+  button, input, textarea { font: inherit; color: inherit; }
+  .screen { max-width: 520px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 16px) 20px calc(env(safe-area-inset-bottom) + 88px); gap: 14px; }
+  .screen.bare { padding-bottom: calc(env(safe-area-inset-bottom) + 24px); }
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--teal2); }
+  h1 { margin: 0; font-family: var(--serif); font-weight: 700; color: var(--gold); font-size: 32px; line-height: 1.08; }
+  h2 { margin: 0; font-size: 16px; font-weight: 700; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .card { background: var(--card); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; gap: 12px; align-items: flex-start; }
+  .grow { flex: 1; min-width: 0; }
+  .between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+  .avatar.lg { width: 64px; height: 64px; font-size: 22px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .ok { color: var(--teal2); } .warn { color: var(--gold); } .none { color: var(--muted); }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; border-radius: 999px; border: 0;
+    background: var(--gold); color: #121317; font-weight: 700; font-size: 16px; text-decoration: none; cursor: pointer; width: 100%; }
+  .btn:disabled { opacity: .5; }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line2); min-height: 44px; font-weight: 600; font-size: 15px; }
+  .btn.danger { background: transparent; color: var(--red); border: 1.5px solid var(--red); min-height: 44px; font-size: 14px; width: auto; padding: 0 16px; }
+  .btn.sm { min-height: 44px; width: auto; padding: 0 16px; font-size: 14px; }
+  .back { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; color: var(--ink); text-decoration: none; font-weight: 600; align-self: flex-start; }
+  .link-card { text-decoration: none; color: var(--ink); }
+  .dashed { border: 1.5px dashed var(--line2); background: transparent; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; }
+  .chip { flex: none; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1.5px solid var(--line2); background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--gold); border-color: var(--gold); color: #121317; }
+  .search { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; min-height: 44px; }
+  .search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; font-size: 16px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  label.field input, label.field textarea { min-height: 44px; border-radius: 12px; border: 1.5px solid var(--line2); background: var(--card); padding: 10px 12px; font-size: 16px; color: var(--ink); }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .seg button { min-height: 44px; border-radius: 12px; border: 1.5px solid var(--line2); background: transparent; font-weight: 600; font-size: 14px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--gold); border-color: var(--gold); color: #121317; }
+  .bar { height: 8px; border-radius: 999px; background: var(--card2); overflow: hidden; }
+  .bar > span { display: block; height: 8px; background: var(--teal); }
+  .recall { border: 1.5px solid var(--gold); }
+  .box { background: var(--card2); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .label { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .err { color: var(--red); font-size: 14px; }
+  .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
+  nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr);
+    background: #16171c; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); z-index: 5; }
+  nav.tabs a { min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    text-decoration: none; color: var(--muted); font-size: 12px; font-weight: 600; }
+  nav.tabs a[aria-current="page"] { color: var(--gold); font-weight: 700; }
+  .hero { position: relative; align-self: center; width: min(100%, 360px); aspect-ratio: 334 / 344; border-radius: 50% 50% 26px 26px / 48% 48% 26px 26px;
+    border: 3px solid; border-color: var(--teal) var(--gold) var(--gold) var(--teal); padding: 6px; }
+  .hero img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
+  .rule { display: flex; align-items: center; gap: 10px; }
+  .rule span:first-child { flex: 1; height: 3px; border-radius: 3px; background: linear-gradient(to right, var(--teal), rgba(42,157,143,.15)); }
+  .rule span:last-child { width: 9px; height: 9px; border-radius: 50%; background: var(--gold); }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  .icon { flex: none; width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(() => {
+  "use strict";
+  const COLORS = [["#1e2a44", "#8db4ff"], ["#3a2a1c", "#f5b57a"], ["#17302e", "#6fd6c8"], ["#2d2440", "#c4a8ff"], ["#3a1f2a", "#f59bb8"], ["#2a2f18", "#c9d77a"]];
+  const root = document.getElementById("root");
+  let timer = null;
+  let readySeconds = 30;
+
+  // ---- tiny DOM helper: h("div", {class: "x", onclick: fn}, child, "text") -------------------------
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
+      else if (k === "html") el.innerHTML = v; // only ever used with constant SVG strings below
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+    return el;
+  }
+  const svg = (paths, stroke = "currentColor", size = 22) => h("span", {"aria-hidden": "true", style: {display: "inline-flex"},
+    html: `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`});
+  const ICON = {
+    mic: '<path d="M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3z"/><path d="M19 11a7 7 0 01-14 0M12 18v3"/>',
+    home: '<path d="M3 10l9-7 9 7v10a1 1 0 01-1 1H4a1 1 0 01-1-1z"/><path d="M9 21v-7h6v7"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/>',
+    back: '<path d="M15 18l-6-6 6-6"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><path d="M17 5.5a3 3 0 010 5M20 20a5.5 5.5 0 00-3.5-5.1"/>',
+    tree: '<path d="M12 22v-7"/><path d="M12 15c-4 0-7-2.5-7-6a7 7 0 0114 0c0 3.5-3 6-7 6z"/><path d="M9 18l3-3 3 3"/>',
+    speaker: '<path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/><path d="M19 5a10 10 0 010 14"/>',
+  };
+
+  const initials = (name) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+  const colourFor = (key) => COLORS[Math.abs([...String(key)].reduce((a, c) => a * 31 + c.charCodeAt(0), 7)) % COLORS.length];
+  const avatar = (name, key, lg) => { const [bg, fg] = colourFor(key); return h("span", {class: "avatar" + (lg ? " lg" : ""), style: {background: bg, color: fg}}, initials(name)); };
+  const speakerName = (label) => "Speaker " + String(label).replace(/^S/, "");
+  const fmtWhen = (ms) => new Date(ms).toLocaleString([], {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+  const plural = (n, w) => n + " " + w + (n === 1 ? "" : "s");
+
+  function voicePill(p) {
+    if (p.voice_status === "ready") return h("span", {class: "pill ok"}, "Voice profile ready");
+    if (p.voice_status === "collecting") return h("span", {class: "pill warn"}, "Needs about " + Math.max(1, Math.ceil(readySeconds - p.speech_seconds)) + " s more speech");
+    return h("span", {class: "pill none"}, "Name only, no voice saved");
+  }
+
+  async function api(path, opts) {
+    const r = await fetch(path, Object.assign({cache: "no-store", headers: {"content-type": "application/json"}}, opts || {}));
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || ("HTTP " + r.status));
+    return body;
+  }
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  function tabs(current) {
+    const tab = (href, icon, label, key) => h("a", {href, "aria-current": current === key ? "page" : null}, svg(ICON[icon]), label);
+    return h("nav", {class: "tabs", "aria-label": "Main"}, tab("#/live", "mic", "Live", "live"), tab("#/people", "home", "Mind Palace", "people"), tab("#/how", "gear", "Setup", "how"));
+  }
+  const back = (href, label) => h("a", {class: "back", href}, svg(ICON.back, "currentColor", 20), label);
+  // Native append() would print null/false as text; skip them like h() does.
+  const put = (el, ...kids) => el.append(...kids.flat().filter((k) => k != null && k !== false));
+  const errorBox = (msg) => h("p", {class: "err", role: "alert"}, msg);
+
+  // ---- screens ------------------------------------------------------------------------------------
+  function Welcome() {
+    store.set("pv.welcomed", "1");
+    return h("div", {class: "screen bare"},
+      h("div", {class: "hero"}, h("img", {src: "/app/glasses.jpg", alt: "Smart glasses on a desk under a glowing sound-wave light"})),
+      h("div", {class: "eyebrow", style: {marginTop: "18px"}}, "Picavoice"),
+      h("h1", {style: {fontSize: "40px"}}, "Never miss a word in the crowd"),
+      h("div", {class: "rule"}, h("span"), h("span")),
+      h("p", {style: {color: "var(--soft)", fontSize: "17px"}}, "Know who’s speaking, what they said and where you met. Your glasses whisper it in your ear, and your phone keeps it all."),
+      h("div", {style: {flex: "1"}}),
+      h("a", {class: "btn", href: "#/how"}, "Get started"),
+      h("a", {class: "btn ghost", href: "#/garden"}, svg(ICON.tree, "currentColor", 20), "Walk the Voice Garden"),
+      h("a", {class: "btn ghost", href: "#/people", style: {border: "0"}}, "I’ve set this up before"));
+  }
+
+  function How() {
+    const step = (icon, stroke, bg, title, text) => h("li", {class: "card row"},
+      h("span", {class: "icon", style: {background: bg}}, svg(ICON[icon], stroke)),
+      h("div", {class: "grow"}, h("h2", null, title), h("p", {class: "muted small", style: {fontSize: "14px"}}, text)));
+    return h("div", {class: "screen"},
+      back("#/", "Back"),
+      h("h1", null, "How Picavoice hears the room"),
+      h("ol", {class: "steps"},
+        step("mic", "#5ed1c1", "#17302e", "Straight from the glasses’ mics", "Your glasses stream raw microphone audio from Mentra’s audio feed straight to Picavoice. No phone held up, no recording app."),
+        step("people", "#e8b730", "#3a2f12", "Every voice gets a label and a profile", "Picavoice labels who is speaking. Save a voice once and “Speaker 2” becomes Maya."),
+        step("speaker", "#8db4ff", "#1e2a44", "Your own voice stands out", "You’re closer to the mics, so your voice is louder than anyone else’s. Check it on the Live screen: you should show up as one steady speaker.")),
+      h("a", {class: "btn ghost", href: "#/live"}, "Open Live to test"),
+      h("a", {class: "btn", href: "#/people"}, "Open my Mind Palace"),
+      tabs("how"));
+  }
+
+  async function PeopleScreen(screen) {
+    const {people, readySeconds: rs} = await api("/api/people");
+    readySeconds = rs;
+    let q = "";
+    const list = h("div", {style: {display: "flex", flexDirection: "column", gap: "10px"}});
+    const render = () => {
+      const needle = q.trim().toLowerCase();
+      const shown = people.filter((p) => !needle || [p.display_name, p.role, p.met_at, p.notes, p.last_quote].some((v) => v && v.toLowerCase().includes(needle)));
+      list.replaceChildren(...(shown.length ? shown.map((p) => {
+        const inner = h("div", {class: "row"}, avatar(p.display_name, p.id),
+          h("div", {class: "grow", style: {display: "flex", flexDirection: "column", gap: "3px"}},
+            h("div", {class: "between"}, h("strong", null, p.display_name), h("span", {class: "muted", style: {fontSize: "12px"}}, plural(p.talks, "talk"))),
+            p.met_at || p.role ? h("span", {class: "muted", style: {fontSize: "14px"}}, [p.role, p.met_at].filter(Boolean).join(" · ")) : null,
+            p.last_quote ? h("span", {style: {fontSize: "14px", color: "var(--soft)"}}, "“" + p.last_quote + "”") : null,
+            voicePill(p)));
+        return h("a", {class: "card link-card" + (p.voice_consent ? "" : " dashed"), href: "#/person/" + p.id}, inner);
+      }) : [h("p", {class: "empty"}, people.length ? "No one matches that search." : "Your Mind Palace is empty. Meet someone and save their voice from the Live screen.")]));
+    };
+    render();
+    put(screen, 
+      h("div", {class: "between", style: {alignItems: "flex-end"}},
+        h("div", null, h("div", {class: "eyebrow"}, "Picavoice"), h("h1", null, "Mind Palace")),
+        h("a", {class: "chip", href: "#/garden", style: {display: "inline-flex", alignItems: "center", gap: "6px", textDecoration: "none", color: "var(--ink)"}}, svg(ICON.tree, "currentColor", 16), "Garden view")),
+      h("p", {class: "muted small"}, plural(people.length, "person").replace("persons", "people") + " in your Mind Palace"),
+      h("label", {class: "search"}, svg(ICON.search, "#a9aeb8", 18), h("span", {class: "visually-hidden"}, "Search people"),
+        h("input", {type: "search", placeholder: "Search names, topics, where you met", oninput: (e) => { q = e.target.value; render(); }})),
+      list,
+      h("a", {class: "btn", href: "#/enroll", style: {marginTop: "4px"}}, svg(ICON.plus, "#121317", 20), "Meet someone new"),
+      tabs("people"));
+  }
+
+  async function PersonScreen(screen, id) {
+    const {person: p, readySeconds: rs} = await api("/api/people/" + id);
+    readySeconds = rs;
+    const pct = Math.min(100, Math.round((p.speech_seconds / readySeconds) * 100));
+    let confirming = false;
+    const del = h("button", {type: "button", class: "btn danger"}, "Delete " + p.display_name.split(" ")[0] + "’s voice and data");
+    const delMsg = h("p", {class: "muted small", hidden: true}, "This removes their profile, voice links and the lines they said. Tap again to confirm.");
+    del.addEventListener("click", async () => {
+      if (!confirming) { confirming = true; delMsg.hidden = false; del.textContent = "Yes, delete everything"; return; }
+      del.disabled = true;
+      try { await api("/api/people/" + p.id, {method: "DELETE"}); location.hash = "#/people"; }
+      catch (e) { del.disabled = false; delMsg.textContent = "Couldn’t delete: " + e.message; }
+    });
+    put(screen, 
+      back("#/people", "Mind Palace"),
+      h("div", {class: "row", style: {alignItems: "center"}}, avatar(p.display_name, p.id, true),
+        h("div", null, h("h1", {style: {fontSize: "28px"}}, p.display_name),
+          p.role ? h("div", {class: "muted", style: {fontSize: "14px"}}, p.role) : null,
+          p.met_at ? h("div", {class: "muted", style: {fontSize: "14px"}}, "Met: " + p.met_at) : null)),
+      p.voice_consent
+        ? h("section", {class: "card", style: {background: "var(--tealbg)"}, "aria-label": "Voice profile"},
+            h("div", {class: "between"}, h("h2", null, "Voice profile"), voicePill(p)),
+            h("div", {class: "bar", role: "img", "aria-label": pct + "% of the speech needed"}, h("span", {style: {width: pct + "%"}})),
+            h("div", {class: "between muted small"}, h("span", null, Math.round(p.speech_seconds) + " s of speech collected"), h("span", null, "Heard in " + plural(p.talks, "conversation"))))
+        : h("section", {class: "card dashed"}, h("h2", null, "No voice profile"), h("p", {class: "muted small"}, "They chose name only. Picavoice won’t link their voice.")),
+      h("section", {class: "card"}, h("h2", null, "Things " + p.display_name.split(" ")[0] + " said"),
+        p.quotes.length ? p.quotes.map((qq, i) => h("div", {style: {display: "flex", flexDirection: "column", gap: "2px", paddingTop: i ? "10px" : "0", borderTop: i ? "1px solid var(--line)" : "0"}},
+          h("span", null, "“" + qq.text + "”"))) : h("p", {class: "muted small"}, "Nothing yet. Lines appear here once their voice is linked in a conversation.")),
+      p.conversations.length ? h("section", {class: "card"}, h("h2", null, "Conversations"),
+        p.conversations.map((c) => h("div", {class: "between", style: {minHeight: "36px"}}, h("span", null, fmtWhen(c.started_at)), h("span", {class: "muted small"}, plural(c.lines, "line"))))) : null,
+      p.notes ? h("section", {class: "card"}, h("h2", null, "Notes"), h("p", {style: {whiteSpace: "pre-line"}}, p.notes)) : null,
+      h("section", {style: {display: "flex", flexDirection: "column", gap: "8px"}},
+        h("p", {class: "muted small"}, p.voice_consent ? "Agreed to a voice profile on " + fmtWhen(p.consent_at) + "." : "Saved on " + fmtWhen(p.created_at) + " without a voice profile."),
+        del, delMsg),
+      tabs("people"));
+  }
+
+  async function EnrollScreen(screen, params) {
+    const runId = params.get("run"), label = params.get("label");
+    let consent = true;
+    let heard = null;
+    if (runId && label) {
+      try { const {live} = await api("/api/live"); heard = live && live.run_id === runId ? live.speakers.find((s) => s.speaker_label === label) : null; } catch {}
+    }
+    const yes = h("button", {type: "button", "aria-pressed": "true"}, "They said yes");
+    const no = h("button", {type: "button", "aria-pressed": "false"}, "Name only");
+    const note = h("p", {class: "muted small"});
+    const save = h("button", {type: "submit", class: "btn"});
+    const setConsent = (v) => {
+      consent = v; yes.setAttribute("aria-pressed", String(v)); no.setAttribute("aria-pressed", String(!v));
+      note.textContent = v ? (label ? "Their voice in this conversation (" + speakerName(label) + ") will be linked to them." : "Link their voice later from the Live screen.") : "No voice is saved. You keep their name and your notes.";
+      save.textContent = v ? "Save voice profile" : "Save name and notes";
+    };
+    yes.addEventListener("click", () => setConsent(true));
+    no.addEventListener("click", () => setConsent(false));
+    setConsent(true);
+    const field = (name, labelText, attrs) => {
+      const {multiline, ...rest} = attrs || {};
+      return h("label", {class: "field"}, labelText, h(multiline ? "textarea" : "input", Object.assign({name}, multiline ? {rows: 3} : {}, rest)));
+    };
+    const err = h("p", {class: "err", role: "alert"});
+    const form = h("form", {style: {display: "flex", flexDirection: "column", gap: "14px"}},
+      label ? h("section", {class: "card", style: {background: "var(--tealbg)"}},
+        h("div", {class: "between"}, h("h2", null, "Listening to " + speakerName(label)), h("span", {class: "pill ok"}, "This conversation")),
+        heard ? h("p", {style: {color: "var(--soft)"}}, "Last said: “" + heard.last_text + "”") : null,
+        heard ? h("p", {class: "muted small"}, Math.round(heard.speech_seconds) + " s of their speech so far") : null) : null,
+      h("section", {class: "card"}, h("h2", null, "Ask first"),
+        h("p", {class: "muted", style: {fontSize: "14px"}}, "Ask out loud: “Is it OK if I remember your voice?”"),
+        h("div", {class: "seg"}, yes, no), note),
+      field("name", "Name", {required: true, autocomplete: "off", placeholder: "Their name"}),
+      field("role", "What they do", {placeholder: "e.g. Product designer at …"}),
+      field("metAt", "Where you met", {placeholder: "e.g. Demo booth, day 2"}),
+      field("notes", "Notes", {multiline: true, placeholder: "Anything to remember"}),
+      err, save);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      save.disabled = true; err.textContent = "";
+      try {
+        const {id} = await api("/api/people", {method: "POST", body: JSON.stringify({
+          name: fd.get("name"), role: fd.get("role"), metAt: fd.get("metAt"), notes: fd.get("notes"),
+          voiceConsent: consent, runId: runId || undefined, speakerLabel: label || undefined})});
+        location.hash = "#/person/" + id;
+      } catch (ex) { err.textContent = "Couldn’t save: " + ex.message; save.disabled = false; }
+    });
+    put(screen, back(label ? "#/live" : "#/people", "Cancel"), h("h1", {style: {fontSize: "28px"}}, "New voice profile"), form);
+  }
+
+  const lastTimeCache = new Map();
+  async function lastTime(personId, runId) {
+    const key = personId + "|" + runId;
+    if (!lastTimeCache.has(key)) {
+      lastTimeCache.set(key, api("/api/people/" + personId).then(({person}) => {
+        const q = person.quotes.find((x) => x.run_id !== runId);
+        return {quote: q ? q.text : null, talks: person.talks};
+      }).catch(() => ({quote: null})));
+    }
+    return lastTimeCache.get(key);
+  }
+
+  async function LiveScreen(screen) {
+    const status = h("span", {class: "pill ok"}, "Connecting…");
+    const body = h("div", {style: {display: "flex", flexDirection: "column", gap: "14px"}});
+    put(screen, h("div", {class: "between"}, h("h1", {style: {fontSize: "28px"}}, "Live"), status), body, tabs("live"));
+    let peopleList = [];
+    const tick = async () => {
+      let live;
+      try { live = (await api("/api/live")).live; peopleList = (await api("/api/people")).people; }
+      catch { status.className = "pill none"; status.textContent = "Can’t reach the laptop"; return; }
+      if (!live) { status.className = "pill none"; status.textContent = "No conversation yet"; body.replaceChildren(h("p", {class: "empty"}, "Start a conversation with the glasses on. Voices will appear here.")); return; }
+      status.className = live.ended_at ? "pill warn" : "pill ok";
+      status.textContent = live.ended_at ? "Last conversation · ended" : "Listening";
+      if (!live.speakers.length) { body.replaceChildren(h("p", {class: "empty"}, "Listening… no one has spoken yet.")); return; }
+      const cards = await Promise.all(live.speakers.map(async (s) => {
+        if (s.person_id) {
+          const lt = await lastTime(s.person_id, live.run_id);
+          return h("section", {class: "card recall", "aria-label": "Recognized speaker"},
+            h("div", {class: "row", style: {alignItems: "center"}}, avatar(s.display_name, s.person_id),
+              h("div", {class: "grow"}, h("div", {class: "small ok", style: {fontWeight: "600"}}, speakerName(s.speaker_label) + " is"),
+                h("div", {style: {fontFamily: "var(--serif)", fontWeight: "700", fontSize: "22px"}}, s.display_name),
+                s.role || s.met_at ? h("div", {class: "muted small"}, [s.role, s.met_at && "met: " + s.met_at].filter(Boolean).join(" · ")) : null)),
+            lt.quote ? h("div", {class: "box"}, h("span", {class: "label"}, "Last time"), h("span", null, "“" + lt.quote + "”")) : null,
+            h("div", {class: "box"}, h("span", {class: "label"}, "Just said"), h("span", null, s.last_text)),
+            h("a", {class: "btn ghost", href: "#/person/" + s.person_id}, "Open profile"));
+        }
+        const known = peopleList.filter((p) => p.voice_consent);
+        const pick = known.length ? h("select", {"aria-label": "Link to someone you’ve met", style: {minHeight: "44px", borderRadius: "12px", background: "var(--card2)", border: "1.5px solid var(--line2)", padding: "0 10px", maxWidth: "100%"}},
+          h("option", {value: ""}, "That’s someone I’ve met…"), known.map((p) => h("option", {value: p.id}, p.display_name))) : null;
+        if (pick) pick.addEventListener("change", async () => {
+          if (!pick.value) return;
+          try { await api("/api/assign", {method: "POST", body: JSON.stringify({runId: live.run_id, speakerLabel: s.speaker_label, personId: Number(pick.value)})}); tick(); }
+          catch (e) { pick.replaceWith(errorBox("Couldn’t link: " + e.message)); }
+        });
+        return h("section", {class: "card dashed"},
+          h("div", {class: "row", style: {alignItems: "center"}}, h("span", {class: "avatar", style: {background: "var(--card2)", color: "var(--muted)"}}, "?"),
+            h("div", {class: "grow"}, h("strong", null, "New voice · " + speakerName(s.speaker_label)), h("div", {class: "muted small"}, "Not in your Mind Palace · " + Math.round(s.speech_seconds) + " s of speech")),
+            h("a", {class: "btn sm", href: "#/enroll?run=" + encodeURIComponent(live.run_id) + "&label=" + encodeURIComponent(s.speaker_label)}, "Save")),
+          h("p", {style: {color: "var(--soft)", fontSize: "15px"}}, "“" + s.last_text + "”"),
+          pick);
+      }));
+      // Don't rebuild while the person is using a picker.
+      if (document.activeElement && document.activeElement.tagName === "SELECT" && body.contains(document.activeElement)) return;
+      body.replaceChildren(...cards);
+    };
+    await tick();
+    timer = setInterval(tick, 2000);
+  }
+
+  async function GardenScreen(screen) {
+    let count = 0;
+    try { count = (await api("/api/people")).people.length; } catch {}
+    const step = (n, title, text, action) => h("li", {class: "card row"},
+      h("span", {class: "icon", style: {background: "#3a2f12", color: "var(--gold)", fontWeight: "700"}}, String(n)),
+      h("div", {class: "grow", style: {display: "flex", flexDirection: "column", gap: "8px"}},
+        h("h2", null, title), h("p", {class: "muted", style: {fontSize: "14px"}}, text), action));
+    put(screen,
+      back("#/people", "Mind Palace"),
+      h("div", {class: "eyebrow"}, "Example project"),
+      h("h1", null, "Voice Garden"),
+      h("p", {style: {color: "var(--soft)"}}, "Everyone in your Mind Palace becomes a tree. When they talk through the glasses, their tree grows and their words float up from it. On the laptop, the AR mirror puts each tree beside the person’s head."),
+      h("ol", {class: "steps"},
+        step(1, "Open the garden", count ? plural(count, "person").replace("persons", "people") + " will be planted automatically and kept in sync." : "Your Mind Palace is empty. Save someone from Live first, or press Demo in the garden.",
+          h("a", {class: "btn sm", href: "/garden", style: {alignSelf: "flex-start"}}, "Open Voice Garden")),
+        step(2, "For the AR mirror, use the laptop", "Camera and mic need a secure page, so on the Mac open http://localhost:3100/garden in Chrome and press AR mirror. On this phone the 3D garden still grows live.", null),
+        step(3, "Talk", "Lines spoken through the glasses by someone you saved grow their tree. Deleting someone here removes their tree too.", null)),
+      h("p", {class: "muted small"}, "Voice Garden is based on Voiceprint Garden AR by Ibrahim Kamran."),
+      tabs("people"));
+  }
+
+  // ---- router -------------------------------------------------------------------------------------
+  async function route() {
+    if (timer) { clearInterval(timer); timer = null; }
+    const raw = location.hash.replace(/^#/, "") || (store.get("pv.welcomed") ? "/people" : "/");
+    const [path, query] = raw.split("?");
+    const params = new URLSearchParams(query || "");
+    window.scrollTo(0, 0);
+    if (path === "/" ) return root.replaceChildren(Welcome());
+    if (path === "/how") return root.replaceChildren(How());
+    const screen = h("div", {class: "screen"});
+    root.replaceChildren(screen);
+    try {
+      if (path === "/people") await PeopleScreen(screen);
+      else if (path.startsWith("/person/")) await PersonScreen(screen, Number(path.split("/")[2]));
+      else if (path === "/enroll") await EnrollScreen(screen, params);
+      else if (path === "/live") await LiveScreen(screen);
+      else if (path === "/garden") await GardenScreen(screen);
+      else { location.hash = "#/people"; }
+    } catch (e) {
+      screen.replaceChildren(back("#/people", "Mind Palace"), h("h1", null, "Something went wrong"),
+        errorBox(e.message + ". Is the laptop server running, and is the phone on the same Wi-Fi?"), tabs(""));
+    }
+  }
+  window.addEventListener("hashchange", route);
+  route();
+})();
+</script>
+</body>
+</html>

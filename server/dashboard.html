@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#13201a">
+<title>Echo · live transcript</title>
+<style>
+  :root {
+    --bg: #f4f7f5; --ink: #13201a; --muted: #4b5a53; --line: #dce4e0; --card: #ffffff;
+    --ok: #0f766e; --warn: #b45309; --bad: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--ink); color: #f4f7f5;
+    padding: calc(env(safe-area-inset-top) + 12px) 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #9ca3af; }
+  .status[data-state="live"] .dot { background: #2dd4bf; }
+  .status[data-state="ended"] .dot { background: #fbbf24; }
+  .status[data-state="offline"] .dot { background: #f87171; }
+  label.picker { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #b7c4bd; }
+  select { font: inherit; font-size: 16px; min-height: 44px; border-radius: 10px; border: 1px solid #3a4a42;
+    background: #1e2e26; color: #f4f7f5; padding: 0 12px; width: 100%; }
+  .follow { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #b7c4bd; min-height: 32px; }
+  .follow input { width: 20px; height: 20px; }
+  main { padding: 12px 12px calc(env(safe-area-inset-bottom) + 80px); max-width: 760px; margin: 0 auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 4px 12px; }
+  .empty { text-align: center; color: var(--muted); padding: 48px 16px; }
+  ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  li.utt { background: var(--card); border-radius: 14px; padding: 10px 12px; display: grid;
+    grid-template-columns: auto 1fr; gap: 4px 10px; align-items: start; border-left: 0; }
+  li.utt.new { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #fff7e6; } to { background: var(--card); } }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700;
+    padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+  .chip .sw { width: 8px; height: 8px; border-radius: 50%; }
+  .text { font-size: 17px; overflow-wrap: anywhere; }
+  .meta { grid-column: 2; font-size: 12px; color: var(--muted); }
+  .pending { color: var(--muted); }
+  .jump { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 16px);
+    background: var(--ink); color: #fff; border: 0; border-radius: 999px; padding: 0 18px; min-height: 44px;
+    font: inherit; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.2); display: none; }
+  .jump.show { display: block; }
+  .err { margin: 8px 4px; color: var(--bad); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>Echo · live transcript</h1>
+    <span class="status" id="status" data-state="idle" role="status" aria-live="polite"><span class="dot"></span><span id="statusText">Connecting…</span></span>
+  </div>
+  <label class="picker">Conversation
+    <select id="session" aria-label="Conversation"></select>
+  </label>
+  <label class="follow"><input type="checkbox" id="follow" checked> Jump to the newest conversation automatically</label>
+</header>
+<main>
+  <div class="legend" id="legend" aria-label="Speakers"></div>
+  <p class="err" id="err" hidden></p>
+  <ol id="list" aria-live="polite"></ol>
+  <p class="empty" id="empty">No conversation yet. Start one on the glasses and lines will appear here.</p>
+</main>
+<button class="jump" id="jump" type="button">New lines ↓</button>
+<script>
+(() => {
+  const POLL_MS = 2000, SESSIONS_MS = 5000;
+  // Speaker colours: paired background/text, all >= 4.5:1, distinct in lightness too.
+  const PALETTE = [
+    ["#dbe5fb", "#1d4ed8"], ["#fbe3d6", "#9a3412"], ["#d5eeea", "#0b5a54"],
+    ["#ede4fb", "#6d28d9"], ["#fbe7ef", "#9d174d"], ["#e9edd2", "#4d5b0f"],
+  ];
+  const $ = (id) => document.getElementById(id);
+  const el = {status: $("status"), statusText: $("statusText"), session: $("session"), follow: $("follow"),
+    list: $("list"), empty: $("empty"), legend: $("legend"), jump: $("jump"), err: $("err")};
+
+  let sessions = [];
+  let current = null;      // run_id being shown
+  let lastId = 0;          // highest utterance id rendered for `current`
+  let speakers = new Map(); // label -> {name, colour index}
+  let pollTimer = null, failures = 0, fetching = false;
+
+  const colourFor = (label) => {
+    if (!speakers.has(label)) speakers.set(label, {name: null, idx: speakers.size % PALETTE.length});
+    return PALETTE[speakers.get(label).idx];
+  };
+  const speakerName = (u) => u.person_name || (u.speaker_label === "S?" ? "Unknown" : "Speaker " + u.speaker_label.replace(/^S/, ""));
+  const fmtTime = (s) => { const m = Math.floor(s / 60), r = Math.floor(s % 60); return m + ":" + String(r).padStart(2, "0"); };
+  const fmtWhen = (ms) => new Date(ms).toLocaleString([], {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+  const nearBottom = () => window.innerHeight + window.scrollY >= document.body.scrollHeight - 120;
+
+  function setStatus(state, text) { el.status.dataset.state = state; el.statusText.textContent = text; }
+  function showErr(msg) { el.err.hidden = !msg; el.err.textContent = msg || ""; }
+
+  async function getJSON(path) {
+    const r = await fetch(path, {cache: "no-store"});
+    if (!r.ok) throw new Error(path + " → HTTP " + r.status);
+    return r.json();
+  }
+
+  function renderSessions() {
+    const keep = current;
+    el.session.replaceChildren(...sessions.map((s) => {
+      const o = document.createElement("option");
+      o.value = s.run_id;
+      o.textContent = fmtWhen(s.started_at) + " · " + s.utterance_count + " lines" + (s.ended_at ? "" : " · live");
+      return o;
+    }));
+    if (keep) el.session.value = keep;
+  }
+
+  function renderLegend() {
+    el.legend.replaceChildren(...[...speakers.entries()].map(([label, info]) => {
+      const [bg, fg] = PALETTE[info.idx];
+      const c = document.createElement("span");
+      c.className = "chip"; c.style.background = bg; c.style.color = fg;
+      const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = fg;
+      c.append(sw, document.createTextNode(info.name || ("Speaker " + label.replace(/^S/, ""))));
+      return c;
+    }));
+  }
+
+  function appendUtterances(rows) {
+    const stick = nearBottom();
+    for (const u of rows) {
+      const [bg, fg] = colourFor(u.speaker_label);
+      if (u.person_name) speakers.get(u.speaker_label).name = u.person_name;
+      const li = document.createElement("li"); li.className = "utt new";
+      const chip = document.createElement("span"); chip.className = "chip"; chip.style.background = bg; chip.style.color = fg;
+      chip.textContent = speakerName(u);
+      const text = document.createElement("span"); text.className = "text"; text.textContent = u.text;
+      const meta = document.createElement("span"); meta.className = "meta";
+      meta.textContent = fmtTime(u.t_start) + "–" + fmtTime(u.t_end);
+      if (!u.speech_final) { const p = document.createElement("span"); p.className = "pending"; p.textContent = " · still talking"; meta.append(p); }
+      li.append(chip, text, meta);
+      el.list.append(li);
+    }
+    if (rows.length) {
+      el.empty.hidden = true;
+      renderLegend();
+      if (stick) window.scrollTo({top: document.body.scrollHeight, behavior: "smooth"});
+      else el.jump.classList.add("show");
+    }
+  }
+
+  function selectSession(runId) {
+    if (runId === current) return;
+    current = runId; lastId = 0; speakers = new Map();
+    el.list.replaceChildren(); el.legend.replaceChildren(); el.jump.classList.remove("show");
+    el.empty.hidden = false;
+    el.empty.textContent = runId ? "No lines in this conversation yet." : "No conversation yet. Start one on the glasses and lines will appear here.";
+    if (runId) el.session.value = runId;
+    pollNow();
+  }
+
+  async function refreshSessions() {
+    try {
+      const data = await getJSON("/api/sessions");
+      sessions = data.sessions || [];
+      renderSessions();
+      const newest = sessions[0] && sessions[0].run_id;
+      if (!current || (el.follow.checked && newest && newest !== current)) selectSession(newest || null);
+    } catch (e) { /* surfaced by the poll loop */ }
+  }
+
+  async function pollNow() {
+    if (!current || fetching) return updateStatus();
+    fetching = true;
+    try {
+      const data = await getJSON("/api/sessions/" + encodeURIComponent(current) + "/utterances?after=" + lastId);
+      if (data.runId === current) { appendUtterances(data.utterances); lastId = data.lastId; }
+      failures = 0; showErr("");
+    } catch (e) {
+      failures++;
+      if (failures >= 2) showErr("Can't reach the server on the laptop. Check the phone is on the same Wi-Fi.");
+    } finally { fetching = false; updateStatus(); }
+  }
+
+  function updateStatus() {
+    if (failures >= 2) return setStatus("offline", "Offline");
+    const s = sessions.find((x) => x.run_id === current);
+    if (!s) return setStatus("idle", "Waiting");
+    setStatus(s.ended_at ? "ended" : "live", s.ended_at ? "Ended" : "Live");
+  }
+
+  el.session.addEventListener("change", () => { el.follow.checked = false; selectSession(el.session.value); });
+  el.jump.addEventListener("click", () => { window.scrollTo({top: document.body.scrollHeight, behavior: "smooth"}); el.jump.classList.remove("show"); });
+  window.addEventListener("scroll", () => { if (nearBottom()) el.jump.classList.remove("show"); }, {passive: true});
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { refreshSessions(); pollNow(); } });
+
+  refreshSessions();
+  setInterval(refreshSessions, SESSIONS_MS);
+  pollTimer = setInterval(pollNow, POLL_MS);
+})();
+</script>
+</body>
+</html>
